@@ -168,6 +168,77 @@ Escribe `Todos` para cerrar el local completo ese rato.
 
 ---
 
+## Dashboard (app para el celular)
+
+El Dashboard es una segunda pantalla, aparte de la de reservas, para que cada
+barbero vea sus servicios y cierre cada cita (estado, método de pago, propina y
+productos) desde el celular. Alimenta la misma hoja `Registro`.
+
+### Montaje (una sola vez)
+
+1. En Apps Script, **+** → **HTML**, nómbralo exactamente `Dashboard`, pega el
+   contenido de `Dashboard.html`. Guarda.
+2. Asegúrate de tener también el archivo `CodigoDashboard.gs` en el proyecto
+   (pega su contenido en un archivo de script nuevo con ese nombre).
+3. En la hoja: menú **RIIF → Actualizar sistema / crear calendarios**. Esto:
+   - agrega las columnas `PIN` y `Rol` a la hoja **Barberos**,
+   - crea la fila del **calendario general "Riif Reservas"** (donde caen las
+     citas de todos) y su calendario en tu Google Calendar.
+4. En la hoja: menú **RIIF → Configurar inventario de productos**. Agrega la
+   columna **`Precio`** a la hoja Inventario y deja el Registro listo.
+5. En la hoja **Barberos**:
+   - Escribe un **PIN de 4 dígitos** para cada persona (barberos y tú).
+   - En **tu** fila (Riif Barber Co.), escribe `Dueño` en la columna `Rol`.
+6. **Implementar → Gestionar implementaciones → editar (lápiz) → Versión: Nueva
+   → Implementar.** Sin esto, los cambios no salen.
+
+### Cómo se entra
+
+La dirección del Dashboard es tu URL de siempre con `?p=dashboard` al final:
+
+```
+https://script.google.com/.../exec?p=dashboard
+```
+
+Cada barbero la abre en el celular, elige su nombre, pone su PIN y entra. Conviene
+que la agreguen a la pantalla de inicio ("Agregar a inicio" desde el navegador)
+para que se abra como una app.
+
+### Pestaña "Resumen" — cerrar un servicio
+
+En la lista **Historial de servicios**, se toca la cita → se marca qué pasó
+(Atendido / No asistió / Cancelado), el método de pago, la propina, el
+**descuento** y, si hubo, los productos. Al guardar, todo cae a la hoja
+`Registro` y el inventario se ajusta solo. El botón **↻ Actualizar** trae las
+citas que acaban de terminar sin esperar los 15 minutos del proceso automático.
+
+El Google Form de cierre sigue funcionando: puedes usar cualquiera de los dos.
+
+### Pestaña "Citas" — crear y modificar citas
+
+- **＋ Nueva cita**: elige **Ahora / mostrador** o **Agendar** (día y hora entre
+  los cupos libres). En los dos modos se respeta el horario del barbero: si es
+  fuera de hora o choca con otra cita, avisa y te deja decidir. Al guardar, la
+  cita entra a `Reservas`, se crea el evento en el calendario del barbero **y en
+  el de la barbería**, y le llega el aviso al barbero — igual que una reserva web.
+- **Tocar una cita** abre la edición: reprogramar día/hora, cambiar de barbero o
+  de servicio, corregir los datos del cliente, **cancelar** o **avisar al
+  barbero por WhatsApp**.
+- Un barbero solo ve y toca **sus** citas; Riif Barber Co. ve y edita las de todos.
+- Una cita ya cerrada (Atendido) no se reprograma; para corregir su valor se usa
+  la pantalla de cierre.
+
+### Pestaña "Inventario" — solo Riif Barber Co.
+
+- Tarjeta por producto con **stock actual** (en rojo si queda ≤ 3), unidades
+  vendidas y dinero vendido.
+- **Reponer stock** y **Cambiar precio** en cada producto.
+- **＋ Producto nuevo**: nombre, precio y stock inicial. Aparece de una en la
+  pantalla de cierre para venderlo.
+- Todo se guarda en la hoja **Inventario** (el precio en la columna `Precio`).
+
+---
+
 ## Si algo falla
 
 | Síntoma | Causa casi siempre |
@@ -176,3 +247,6 @@ Escribe `Todos` para cerrar el local completo ese rato.
 | No aparecen cupos ningún día | La hoja Horarios está vacía o las horas no están como `09:00` |
 | Los clientes ven "necesitas permiso" | En la implementación quedó "Solo yo" en vez de "Cualquier usuario" |
 | Cambié el código y no pasa nada | Hay que volver a implementar: **Implementar** → **Gestionar implementaciones** → editar → **Versión: Nueva** → Implementar |
+| El Dashboard abre la pantalla de reservas | Falta `?p=dashboard` en la URL, o el archivo HTML no se llama exactamente `Dashboard` |
+| "PIN incorrecto" o "sin PIN" | Falta llenar la columna `PIN` en la hoja Barberos, o el nombre no coincide con Config |
+| "Esa cita todavía no está en el Registro" | La cita aún no se ha volcado; toca **↻ Actualizar** en el Dashboard |

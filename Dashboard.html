@@ -1,0 +1,1968 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RIIF · Dashboard</title>
+<style>
+  :root {
+    --bg: #0d0d0d;
+    --surface: #161616;
+    --surface2: #1e1e1e;
+    --border: #2a2a2a;
+    --gold: #c9a84c;
+    --gold-dim: #8a6f2e;
+    --text: #f0f0f0;
+    --text-muted: #888;
+    --green: #4caf7a;
+    --blue: #4c8ecf;
+    --red: #cf4c4c;
+    --radius: 12px;
+    --shadow: 0 4px 24px rgba(0,0,0,0.5);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ──── HEADER ──── */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    color: var(--gold);
+    text-transform: uppercase;
+  }
+  .logo span { color: var(--text-muted); font-weight: 400; font-size: 13px; letter-spacing: 0; }
+  .marca-header { display: flex; align-items: center; gap: 10px; }
+  .marca-header svg { width: 96px; height: auto; color: var(--text); display: block; }
+  .marca-header b { color: var(--text-muted); font-weight: 400; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
+  .marca-login svg { width: 168px; height: auto; color: var(--text); display: block; margin: 0 auto 10px; }
+  .btn-logout {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 6px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .btn-logout:hover { border-color: var(--gold-dim); color: var(--gold); }
+
+  /* ──── LOGIN ──── */
+  #login-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  .login-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 40px 32px;
+    width: 100%;
+    max-width: 380px;
+    text-align: center;
+    box-shadow: var(--shadow);
+  }
+  .login-box .logo-big {
+    font-size: 36px;
+    font-weight: 900;
+    letter-spacing: 6px;
+    color: var(--gold);
+    margin-bottom: 4px;
+  }
+  .login-box .sub {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-bottom: 32px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .login-box label {
+    display: block;
+    text-align: left;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .login-box select, .login-box input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 15px;
+    margin-bottom: 16px;
+    outline: none;
+    appearance: none;
+  }
+  .login-box select:focus, .login-box input:focus {
+    border-color: var(--gold-dim);
+  }
+  .btn-primary {
+    width: 100%;
+    background: var(--gold);
+    color: #000;
+    border: none;
+    padding: 14px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 4px;
+    transition: opacity 0.2s;
+  }
+  .btn-primary:hover { opacity: 0.85; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ──── MAIN DASHBOARD ──── */
+  #dashboard-screen { display: none; }
+  .main { padding: 20px; max-width: 700px; margin: 0 auto; }
+
+  /* Filtros */
+  .filtros {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .filtro-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .filtro-btn:hover { border-color: var(--gold-dim); color: var(--text); }
+  .filtro-btn.active {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: #000;
+    font-weight: 700;
+  }
+  .rango-custom {
+    display: none;
+    gap: 8px;
+    align-items: center;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  .rango-custom.visible { display: flex; }
+  .rango-custom input[type=date] {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    outline: none;
+    width: auto;
+  }
+  .rango-custom input[type=date]:focus { border-color: var(--gold-dim); }
+  .btn-small {
+    background: var(--gold);
+    color: #000;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  /* Periodo label */
+  .periodo-label {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+  .periodo-label strong { color: var(--gold); }
+
+  /* KPI Cards */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  @media (min-width: 480px) {
+    .kpi-grid { grid-template-columns: repeat(4, 1fr); }
+  }
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    text-align: center;
+  }
+  .kpi .num {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--gold);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .kpi .lbl {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .kpi.green .num { color: var(--green); }
+  .kpi.blue .num { color: var(--blue); }
+
+  /* Sección */
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .section-title {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+  }
+
+  /* Gráfico de barras */
+  .chart-wrap { padding: 16px; }
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .bar-label {
+    width: 70px;
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: right;
+    flex-shrink: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bar-track {
+    flex: 1;
+    background: var(--surface2);
+    border-radius: 4px;
+    height: 24px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    background: var(--gold);
+    border-radius: 4px;
+    transition: width 0.5s ease;
+    min-width: 2px;
+    display: flex;
+    align-items: center;
+    padding-left: 8px;
+  }
+  .bar-fill span {
+    font-size: 11px;
+    font-weight: 700;
+    color: #000;
+    white-space: nowrap;
+  }
+  .bar-count {
+    width: 24px;
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .no-data {
+    text-align: center;
+    padding: 32px;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  /* Lista de servicios */
+  .servicio-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    gap: 12px;
+  }
+  .servicio-row:last-child { border-bottom: none; }
+  .srv-left { flex: 1; min-width: 0; }
+  .srv-fecha {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  .srv-nombre {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .srv-servicio {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .srv-right { text-align: right; flex-shrink: 0; }
+  .srv-pago {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--green);
+  }
+  .srv-total {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+  .badge-ok { background: rgba(76,175,122,0.15); color: var(--green); }
+  .badge-pend { background: rgba(201,168,76,0.15); color: var(--gold); }
+  .badge-cancel { background: rgba(207,76,76,0.15); color: var(--red); }
+
+  /* Loading */
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin: 32px auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Servicios top */
+  .srv-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .srv-top-row:last-child { border-bottom: none; }
+  .srv-top-name { color: var(--text); }
+  .srv-top-cnt {
+    background: var(--surface2);
+    color: var(--gold);
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  /* Paginación servicios */
+  .ver-mas {
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    border-top: 1px solid var(--border);
+    color: var(--gold);
+    padding: 12px;
+    cursor: pointer;
+    font-size: 13px;
+    text-align: center;
+  }
+  .ver-mas:hover { background: var(--surface2); }
+
+  /* Servicio tocable */
+  .servicio-row.tocable { cursor: pointer; }
+  .servicio-row.tocable:hover { background: var(--surface2); }
+  .srv-chevron { color: var(--text-muted); font-size: 18px; flex-shrink: 0; }
+
+  /* Botón actualizar */
+  .btn-refrescar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .btn-refrescar:hover { border-color: var(--gold-dim); color: var(--gold); }
+
+  /* ──── PESTAÑAS ──── */
+  .tabbar {
+    display: flex;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+    margin-bottom: 20px;
+  }
+  .tab {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    padding: 9px 8px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .tab.on { background: var(--gold); color: #000; }
+
+  /* ──── AGENDA (pestaña Citas) ──── */
+  .agenda-dia {
+    font-size: 12px;
+    color: var(--gold);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 18px 0 8px;
+    font-weight: 700;
+  }
+  .agenda-dia:first-child { margin-top: 0; }
+  .cita-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  .cita-row:hover { border-color: var(--gold-dim); }
+  .cita-hora {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--gold);
+    width: 52px;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .cita-mid { flex: 1; min-width: 0; }
+  .cita-cliente { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cita-sub { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ──── INVENTARIO ──── */
+  .inv-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+  .inv-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .inv-nombre { font-size: 15px; font-weight: 700; }
+  .inv-stock { font-size: 20px; font-weight: 800; color: var(--green); font-variant-numeric: tabular-nums; }
+  .inv-stock.bajo { color: var(--red); }
+  .inv-meta { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .inv-acciones { display: flex; gap: 8px; margin-top: 12px; }
+  .inv-acciones button {
+    flex: 1; background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 8px; border-radius: 8px; font-size: 13px; cursor: pointer;
+  }
+  .inv-acciones button:hover { border-color: var(--gold-dim); color: var(--gold); }
+
+  /* ──── HOJA MODAL (cierre de servicio) ──── */
+  .modal-fondo {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    z-index: 200;
+  }
+  .modal-fondo.abierto { display: block; }
+  .modal-hoja {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+    padding: 8px 20px calc(20px + env(safe-area-inset-bottom));
+    max-width: 700px; margin: 0 auto;
+    max-height: 92vh; overflow-y: auto;
+    transform: translateY(100%);
+    transition: transform 0.25s ease;
+  }
+  .modal-fondo.abierto .modal-hoja { transform: translateY(0); }
+  .modal-agarre {
+    width: 40px; height: 4px; border-radius: 2px;
+    background: var(--border);
+    margin: 8px auto 14px;
+  }
+  .modal-hoja h3 {
+    font-size: 17px; font-weight: 700; margin-bottom: 2px;
+  }
+  .modal-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 18px; }
+  .campo { margin-bottom: 18px; }
+  .campo > label {
+    display: block; font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
+  }
+  .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+  .seg button {
+    flex: 1; min-width: 90px;
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 10px; border-radius: 8px;
+    font-size: 13px; cursor: pointer;
+  }
+  .seg button.on {
+    background: var(--gold); border-color: var(--gold); color: #000; font-weight: 700;
+  }
+  .modal-hoja select, .modal-hoja input, .modal-hoja textarea {
+    width: 100%; background: var(--surface2);
+    border: 1px solid var(--border); color: var(--text);
+    padding: 12px 14px; border-radius: 8px; font-size: 15px;
+    outline: none; appearance: none; font-family: inherit;
+  }
+  .modal-hoja textarea { min-height: 56px; resize: vertical; }
+  .modal-hoja select:focus, .modal-hoja input:focus, .modal-hoja textarea:focus { border-color: var(--gold-dim); }
+  .btn-peligro {
+    width: 100%; background: none; border: 1px solid var(--border);
+    color: var(--red); padding: 12px; border-radius: 8px; cursor: pointer;
+    font-size: 14px; margin-top: 10px;
+  }
+  .btn-peligro:hover { border-color: var(--red); }
+  .btn-sec {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 12px; border-radius: 8px; cursor: pointer;
+    font-size: 14px; margin-top: 10px;
+  }
+  .prod-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; gap: 10px;
+  }
+  .prod-nombre { font-size: 13px; flex: 1; }
+  .prod-nombre small { color: var(--text-muted); }
+  .stepper { display: flex; align-items: center; gap: 8px; }
+  .stepper span { font-size: 10px; color: var(--text-muted); width: 42px; text-transform: uppercase; }
+  .stepper button {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--gold); font-size: 17px; cursor: pointer; line-height: 1;
+  }
+  .stepper b { font-size: 15px; min-width: 18px; text-align: center; font-weight: 700; }
+  .modal-error {
+    background: rgba(207,76,76,0.12); color: var(--red);
+    font-size: 13px; padding: 10px 12px; border-radius: 8px; margin-bottom: 12px;
+    display: none;
+  }
+  .modal-error.visible { display: block; }
+</style>
+</head>
+<body>
+
+<!-- PANTALLA DE LOGIN -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="marca-login"><?!= include('Logo') ?></div>
+    <div class="sub">Dashboard</div>
+
+    <label>¿Quién eres?</label>
+    <select id="sel-barbero">
+      <option value="">Cargando...</option>
+    </select>
+
+    <label>Tu PIN</label>
+    <input id="inp-pin" type="password" inputmode="numeric" maxlength="4"
+           autocomplete="off" placeholder="4 dígitos"
+           onkeydown="if(event.key==='Enter')entrar()">
+
+    <div id="error-login" style="color:#cf4c4c;font-size:13px;margin-bottom:12px;display:none;">
+      Selecciona tu nombre para continuar.
+    </div>
+
+    <button class="btn-primary" id="btn-entrar" onclick="entrar()">Entrar</button>
+  </div>
+</div>
+
+<!-- DASHBOARD PRINCIPAL -->
+<div id="dashboard-screen">
+  <div class="header">
+    <div class="marca-header"><?!= include('Logo') ?><b>Dashboard</b></div>
+    <button class="btn-logout" onclick="salir()">Salir</button>
+  </div>
+
+  <div class="main">
+    <!-- Saludo -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:20px;font-weight:800;" id="saludo-nombre"></div>
+      <div style="color:var(--text-muted);font-size:13px;" id="saludo-fecha"></div>
+    </div>
+
+    <!-- Pestañas -->
+    <div class="tabbar">
+      <button class="tab on" data-tab="resumen" onclick="verTab('resumen')">Resumen</button>
+      <button class="tab" data-tab="citas" onclick="verTab('citas')">Citas</button>
+      <button class="tab" data-tab="inventario" id="tab-btn-inventario" hidden onclick="verTab('inventario')">Inventario</button>
+    </div>
+
+    <!-- ══════ PESTAÑA RESUMEN ══════ -->
+    <section id="tab-resumen">
+    <!-- Filtros de período -->
+    <div class="filtros">
+      <button class="filtro-btn" onclick="setFiltro('hoy')" id="f-hoy">Hoy</button>
+      <button class="filtro-btn" onclick="setFiltro('semana')" id="f-semana">Esta semana</button>
+      <button class="filtro-btn" onclick="setFiltro('mes')" id="f-mes">Este mes</button>
+      <button class="filtro-btn" onclick="setFiltro('anio')" id="f-anio">Este año</button>
+      <button class="filtro-btn" onclick="setFiltro('custom')" id="f-custom">Rango...</button>
+    </div>
+    <div class="rango-custom" id="rango-custom">
+      <span style="font-size:13px;color:var(--text-muted);">Desde</span>
+      <input type="date" id="fecha-desde">
+      <span style="font-size:13px;color:var(--text-muted);">Hasta</span>
+      <input type="date" id="fecha-hasta">
+      <button class="btn-small" onclick="cargarRango()">Ver</button>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:16px;">
+      <div class="periodo-label" id="periodo-label" style="margin:0;"></div>
+      <button class="btn-refrescar" id="btn-refrescar" onclick="refrescar()">↻ Actualizar</button>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="num" id="k-servicios">—</div>
+        <div class="lbl">Servicios</div>
+      </div>
+      <div class="kpi green">
+        <div class="num" id="k-comision">—</div>
+        <div class="lbl">Tu pago</div>
+      </div>
+      <div class="kpi">
+        <div class="num" id="k-propinas">—</div>
+        <div class="lbl">Propinas</div>
+      </div>
+      <div class="kpi blue">
+        <div class="num" id="k-total">—</div>
+        <div class="lbl">Total cobrado</div>
+      </div>
+    </div>
+
+    <!-- Gráfico por día -->
+    <div class="section" id="sec-chart">
+      <div class="section-title" id="chart-title">Servicios por día</div>
+      <div class="chart-wrap" id="chart-area"><div class="spinner"></div></div>
+    </div>
+
+    <!-- Servicios más realizados -->
+    <div class="section" id="sec-top">
+      <div class="section-title">Servicios más realizados</div>
+      <div id="top-area"><div class="spinner"></div></div>
+    </div>
+
+    <!-- Historial de servicios -->
+    <div class="section">
+      <div class="section-title">Historial de servicios</div>
+      <div id="lista-area"><div class="spinner"></div></div>
+      <button class="ver-mas" id="btn-ver-mas" onclick="verMas()" style="display:none;">
+        Ver más servicios ↓
+      </button>
+    </div>
+    </section>
+
+    <!-- ══════ PESTAÑA CITAS ══════ -->
+    <section id="tab-citas" hidden>
+      <button class="btn-primary" onclick="abrirNuevaCita()" style="margin-bottom:16px;">＋ Nueva cita</button>
+      <div id="agenda-area"><div class="spinner"></div></div>
+    </section>
+
+    <!-- ══════ PESTAÑA INVENTARIO (solo dueño) ══════ -->
+    <section id="tab-inventario" hidden>
+      <button class="btn-primary" onclick="abrirNuevoProducto()" style="margin-bottom:16px;">＋ Producto nuevo</button>
+      <div id="inv-area"><div class="spinner"></div></div>
+    </section>
+
+  </div>
+</div>
+
+<!-- HOJA MODAL: cerrar servicio -->
+<div class="modal-fondo" id="modal-cierre" onclick="if(event.target===this)cerrarModal()">
+  <div class="modal-hoja">
+    <div class="modal-agarre"></div>
+    <h3 id="mc-titulo">Cerrar servicio</h3>
+    <div class="modal-sub" id="mc-sub"></div>
+
+    <div class="modal-error" id="mc-error"></div>
+
+    <div class="campo">
+      <label>¿Qué pasó?</label>
+      <div class="seg" id="mc-estados"></div>
+    </div>
+
+    <div class="campo">
+      <label>Método de pago</label>
+      <select id="mc-metodo"></select>
+    </div>
+
+    <div class="campo">
+      <label>Propina</label>
+      <input id="mc-propina" type="number" min="0" step="500" placeholder="0">
+    </div>
+
+    <div class="campo">
+      <label>Descuento $</label>
+      <input id="mc-descuento" type="number" min="0" step="1000" placeholder="0">
+    </div>
+
+    <div class="campo" id="mc-productos">
+      <label>Productos</label>
+      <!-- filas de productos se generan en JS -->
+    </div>
+
+    <button class="btn-primary" id="mc-guardar" onclick="guardarCierre()">Guardar cierre</button>
+    <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- HOJA MODAL: nueva cita -->
+<div class="modal-fondo" id="modal-nueva" onclick="if(event.target===this)cerrarNueva()">
+  <div class="modal-hoja">
+    <div class="modal-agarre"></div>
+    <h3>Nueva cita</h3>
+    <div class="modal-sub">El cliente ya está aquí (Ahora) o agéndalo para después.</div>
+
+    <div class="modal-error" id="nc-error"></div>
+
+    <div class="campo">
+      <label>¿Cuándo?</label>
+      <div class="seg" id="nc-modo">
+        <button type="button" class="on" data-modo="ahora" onclick="nuevaModo('ahora')">Ahora / mostrador</button>
+        <button type="button" data-modo="agendar" onclick="nuevaModo('agendar')">Agendar</button>
+      </div>
+    </div>
+
+    <div class="campo">
+      <label>Servicio</label>
+      <select id="nc-servicio" onchange="ncServicioCambio()"></select>
+    </div>
+
+    <div class="campo" id="nc-campo-barbero">
+      <label>Barbero</label>
+      <select id="nc-barbero" onchange="ncCargarCupos()"></select>
+    </div>
+
+    <div id="nc-agendar" hidden>
+      <div class="campo">
+        <label>Día</label>
+        <input id="nc-fecha" type="date" onchange="ncCargarCupos()">
+      </div>
+      <div class="campo">
+        <label>Hora</label>
+        <select id="nc-hora"><option value="">Elige el día primero</option></select>
+      </div>
+    </div>
+
+    <div class="campo">
+      <label>Cliente</label>
+      <input id="nc-cliente" type="text" autocomplete="off" placeholder="Nombre">
+    </div>
+    <div class="campo">
+      <label>Teléfono</label>
+      <input id="nc-telefono" type="tel" inputmode="numeric" placeholder="300 000 0000">
+    </div>
+    <div class="campo">
+      <label>Correo <span style="text-transform:none;letter-spacing:0;">(opcional)</span></label>
+      <input id="nc-email" type="email" autocomplete="off" placeholder="para la confirmación">
+    </div>
+    <div class="campo">
+      <label>Nota <span style="text-transform:none;letter-spacing:0;">(opcional)</span></label>
+      <textarea id="nc-notas"></textarea>
+    </div>
+
+    <button class="btn-primary" id="nc-guardar" onclick="guardarNuevaCita()">Crear cita</button>
+    <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarNueva()">Cancelar</button>
+  </div>
+</div>
+
+<!-- HOJA MODAL: producto nuevo -->
+<div class="modal-fondo" id="modal-producto" onclick="if(event.target===this)cerrarProducto()">
+  <div class="modal-hoja">
+    <div class="modal-agarre"></div>
+    <h3>Producto nuevo</h3>
+    <div class="modal-error" id="np-error"></div>
+    <div class="campo"><label>Nombre</label><input id="np-nombre" type="text" autocomplete="off" placeholder="Ej. Gaseosa"></div>
+    <div class="campo"><label>Precio $</label><input id="np-precio" type="number" min="0" step="500" placeholder="3000"></div>
+    <div class="campo"><label>Stock inicial</label><input id="np-stock" type="number" min="0" step="1" placeholder="0"></div>
+    <button class="btn-primary" id="np-guardar" onclick="guardarNuevoProducto()">Crear producto</button>
+    <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarProducto()">Cancelar</button>
+  </div>
+</div>
+
+<!-- HOJA MODAL: editar cita -->
+<div class="modal-fondo" id="modal-editar" onclick="if(event.target===this)cerrarEditar()">
+  <div class="modal-hoja">
+    <div class="modal-agarre"></div>
+    <h3>Editar cita</h3>
+    <div class="modal-sub" id="ed-sub"></div>
+
+    <div class="modal-error" id="ed-error"></div>
+
+    <div class="campo"><label>Día</label><input id="ed-fecha" type="date"></div>
+    <div class="campo"><label>Hora</label><input id="ed-hora" type="time" step="300"></div>
+    <div class="campo"><label>Barbero</label><select id="ed-barbero"></select></div>
+    <div class="campo"><label>Servicio</label><select id="ed-servicio"></select></div>
+    <div class="campo"><label>Cliente</label><input id="ed-cliente" type="text" autocomplete="off"></div>
+    <div class="campo"><label>Teléfono</label><input id="ed-telefono" type="tel" inputmode="numeric"></div>
+    <div class="campo"><label>Nota</label><textarea id="ed-notas"></textarea></div>
+
+    <button class="btn-primary" id="ed-guardar" onclick="guardarEdicion()">Guardar cambios</button>
+    <button class="btn-sec" onclick="avisarBarberoCita()">Avisar al barbero por WhatsApp</button>
+    <button class="btn-peligro" onclick="cancelarCitaActual()">Cancelar esta cita</button>
+    <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarEditar()">Cerrar</button>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  ESTADO GLOBAL
+// ─────────────────────────────────────────────
+var barberoActual = '';
+var tokenActual   = '';
+var rolActual     = 'barbero';
+var filtroActual  = 'mes';
+var desdeActual   = '';
+var hastaActual   = '';
+var todosServicios = [];
+var mostrandoN     = 15;
+var opcionesCierre = null;
+var cierreIdx      = -1;   // índice en todosServicios del servicio que se está cerrando
+var tabActual      = 'resumen';
+var formCita       = null; // datos para los formularios de cita (getFormularioCita)
+var agendaCitas    = [];
+var citasCargadas  = false;
+var editId         = '';
+var nuevaModoActual = 'ahora';
+var inventarioCargado = false;
+var inventario     = [];
+
+// ─────────────────────────────────────────────
+//  INICIO
+// ─────────────────────────────────────────────
+function arrancar() {
+  try {
+    var tok = sessionGet('token');
+    var sesion = sessionGet('barbero');
+    if (tok && sesion) {
+      barberoActual = sesion;
+      tokenActual   = tok;
+      rolActual     = sessionGet('rol') || 'barbero';
+      // Refrescar el rol desde el servidor por si le cambiaron el Rol en la hoja.
+      google.script.run
+        .withSuccessHandler(function(p) {
+          if (p && p.rol) { rolActual = p.rol; sessionSet('rol', rolActual); }
+          mostrarDashboard();
+        })
+        .withFailureHandler(function() { mostrarDashboard(); })
+        .getPerfilDashboard(tokenActual);
+    } else {
+      cargarBarberos();
+    }
+  } catch (e) {
+    var sel = document.getElementById('sel-barbero');
+    if (sel) sel.innerHTML = '<option value="">Error: ' + (e && e.message || e) + '</option>';
+  }
+}
+// El bloque de código está al final del body, así que el DOM ya existe:
+// arrancamos de una y también nos colgamos de onload por si acaso.
+arrancar();
+window.addEventListener('load', function () {
+  var sel = document.getElementById('sel-barbero');
+  if (sel && /Cargando/.test(sel.textContent)) arrancar();
+});
+
+function sessionGet(k) {
+  try { return sessionStorage.getItem('riif_' + k) || ''; } catch(e) { return ''; }
+}
+function sessionSet(k, v) {
+  try { sessionStorage.setItem('riif_' + k, v); } catch(e) {}
+}
+function sessionDel(k) {
+  try { sessionStorage.removeItem('riif_' + k); } catch(e) {}
+}
+
+function cargarBarberos() {
+  var sel = document.getElementById('sel-barbero');
+  var err = document.getElementById('error-login');
+  var listo = false;
+
+  // Watchdog: si en 15 s no respondió el servidor, avisar y dejar reintentar.
+  var t = setTimeout(function() {
+    if (listo) return;
+    sel.innerHTML = '<option value="">No respondió el servidor</option>';
+    err.textContent = 'No cargó la lista. Toca "Reintentar".';
+    err.style.display = 'block';
+    var b = document.getElementById('btn-entrar');
+    b.textContent = 'Reintentar'; b.disabled = false;
+    b.onclick = function() { b.textContent = 'Entrar'; b.onclick = null; err.style.display = 'none'; cargarBarberos(); };
+  }, 15000);
+
+  function pintar(nombres) {
+    listo = true; clearTimeout(t);
+    sel.innerHTML = '<option value="">— Elige tu nombre —</option>';
+    (nombres || []).forEach(function(b) {
+      var o = document.createElement('option');
+      o.value = b; o.textContent = b;
+      sel.appendChild(o);
+    });
+    if (!nombres || !nombres.length) {
+      sel.innerHTML = '<option value="">Sin usuarios — revisa la hoja Barberos</option>';
+    }
+  }
+
+  google.script.run
+    .withSuccessHandler(function(d) { pintar(d && d.usuarios); })
+    .withFailureHandler(function(e1) {
+      // Fallback: intentar con getDatosIniciales (lista de barberos de Config)
+      google.script.run
+        .withSuccessHandler(function(d2) { pintar(d2 && d2.barberos); })
+        .withFailureHandler(function(e2) {
+          listo = true; clearTimeout(t);
+          sel.innerHTML = '<option value="">Error al cargar</option>';
+          err.textContent = String((e2 && e2.message) || e2 || 'Error del servidor');
+          err.style.display = 'block';
+        })
+        .getDatosIniciales();
+    })
+    .getUsuariosDashboard();
+}
+
+function entrar() {
+  var sel = document.getElementById('sel-barbero');
+  var pin = document.getElementById('inp-pin');
+  var err = document.getElementById('error-login');
+  var btn = document.getElementById('btn-entrar');
+
+  if (!sel.value) { err.textContent = 'Selecciona tu nombre.'; err.style.display = 'block'; return; }
+  if ((pin.value || '').replace(/\D/g, '').length < 4) {
+    err.textContent = 'Escribe tu PIN de 4 dígitos.'; err.style.display = 'block'; return;
+  }
+  err.style.display = 'none';
+  btn.disabled = true; btn.textContent = 'Entrando…';
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false; btn.textContent = 'Entrar';
+      if (!r || !r.ok) {
+        err.textContent = (r && r.error) || 'No se pudo entrar.';
+        err.style.display = 'block';
+        return;
+      }
+      barberoActual = r.nombre;
+      tokenActual   = r.token;
+      rolActual     = r.rol || 'barbero';
+      sessionSet('barbero', barberoActual);
+      sessionSet('token', tokenActual);
+      sessionSet('rol', rolActual);
+      pin.value = '';
+      mostrarDashboard();
+    })
+    .withFailureHandler(function(e) {
+      btn.disabled = false; btn.textContent = 'Entrar';
+      err.textContent = 'No se pudo entrar. Revisa tu conexión.';
+      err.style.display = 'block';
+    })
+    .iniciarSesion(sel.value, pin.value);
+}
+
+function salir() {
+  sessionDel('barbero'); sessionDel('token'); sessionDel('rol');
+  barberoActual = ''; tokenActual = ''; rolActual = 'barbero';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('dashboard-screen').style.display = 'none';
+  cargarBarberos();
+}
+
+// ─────────────────────────────────────────────
+//  PANTALLA PRINCIPAL
+// ─────────────────────────────────────────────
+function mostrarDashboard() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('dashboard-screen').style.display = 'block';
+
+  // Saludo
+  document.getElementById('saludo-nombre').textContent = '¡Hola, ' + barberoActual + '!';
+  document.getElementById('saludo-fecha').textContent  =
+    (rolActual === 'Dueño' ? 'Vista de administrador · ' : '') + fechaHoyTexto();
+
+  // Opciones para la pantalla de cierre (una sola vez)
+  if (!opcionesCierre) {
+    google.script.run
+      .withSuccessHandler(function(o) { opcionesCierre = o; })
+      .withFailureHandler(function() {})
+      .getOpcionesCierre();
+  }
+  // Datos para los formularios de cita (una sola vez)
+  if (!formCita) {
+    google.script.run
+      .withSuccessHandler(function(o) { formCita = o; })
+      .withFailureHandler(function() {})
+      .getFormularioCita(tokenActual);
+  }
+
+  // Pestaña Inventario solo para el dueño
+  document.getElementById('tab-btn-inventario').hidden = (rolActual !== 'Dueño');
+
+  verTab('resumen');
+  citasCargadas = false;
+  inventarioCargado = false;
+  setFiltro('mes');
+}
+
+// ─────────────────────────────────────────────
+//  PESTAÑAS
+// ─────────────────────────────────────────────
+function verTab(t) {
+  tabActual = t;
+  document.querySelectorAll('.tab').forEach(function(b) {
+    b.classList.toggle('on', b.getAttribute('data-tab') === t);
+  });
+  document.getElementById('tab-resumen').hidden    = (t !== 'resumen');
+  document.getElementById('tab-citas').hidden      = (t !== 'citas');
+  document.getElementById('tab-inventario').hidden = (t !== 'inventario');
+  if (t === 'citas' && !citasCargadas) cargarAgenda();
+  if (t === 'inventario' && !inventarioCargado) cargarInventario();
+}
+
+function refrescar() {
+  var btn = document.getElementById('btn-refrescar');
+  btn.disabled = true; btn.textContent = '↻ …';
+  google.script.run
+    .withSuccessHandler(function() {
+      btn.disabled = false; btn.textContent = '↻ Actualizar';
+      cargarDatos(desdeActual, hastaActual);
+    })
+    .withFailureHandler(function() {
+      btn.disabled = false; btn.textContent = '↻ Actualizar';
+      cargarDatos(desdeActual, hastaActual);
+    })
+    .traerCitasDeHoy(tokenActual);
+}
+
+function fechaHoyTexto() {
+  var d = new Date();
+  var dias  = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  var meses = ['enero','febrero','marzo','abril','mayo','junio',
+               'julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  return dias[d.getDay()] + ', ' + d.getDate() + ' de ' + meses[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+// ─────────────────────────────────────────────
+//  FILTROS
+// ─────────────────────────────────────────────
+function setFiltro(f) {
+  filtroActual = f;
+  ['hoy','semana','mes','anio','custom'].forEach(function(id) {
+    document.getElementById('f-' + id).classList.toggle('active', id === f);
+  });
+  var rango = document.getElementById('rango-custom');
+  if (f === 'custom') {
+    rango.classList.add('visible');
+    return; // esperar que el usuario elija fechas
+  }
+  rango.classList.remove('visible');
+
+  var hoy   = isoHoy();
+  var desde, hasta;
+
+  if (f === 'hoy') {
+    desde = hasta = hoy;
+  } else if (f === 'semana') {
+    var d = new Date();
+    var dow = d.getDay() || 7; // lunes = 1
+    var lunes = new Date(d);
+    lunes.setDate(d.getDate() - dow + 1);
+    desde = isoDate(lunes);
+    hasta = hoy;
+  } else if (f === 'mes') {
+    desde = hoy.slice(0, 7) + '-01';
+    hasta = hoy;
+  } else if (f === 'anio') {
+    desde = hoy.slice(0, 4) + '-01-01';
+    hasta = hoy;
+  }
+
+  desdeActual = desde;
+  hastaActual = hasta;
+  actualizarPeriodoLabel(desde, hasta);
+  cargarDatos(desde, hasta);
+}
+
+function cargarRango() {
+  var d = document.getElementById('fecha-desde').value;
+  var h = document.getElementById('fecha-hasta').value;
+  if (!d || !h) return;
+  if (d > h) { var tmp = d; d = h; h = tmp; }
+  desdeActual = d;
+  hastaActual = h;
+  actualizarPeriodoLabel(d, h);
+  cargarDatos(d, h);
+}
+
+function isoHoy() {
+  var d = new Date();
+  return isoDate(d);
+}
+function isoDate(d) {
+  return d.getFullYear() + '-' +
+    ('0' + (d.getMonth() + 1)).slice(-2) + '-' +
+    ('0' + d.getDate()).slice(-2);
+}
+
+function actualizarPeriodoLabel(desde, hasta) {
+  var el = document.getElementById('periodo-label');
+  if (desde === hasta) {
+    el.innerHTML = 'Mostrando: <strong>' + fmtFecha(desde) + '</strong>';
+  } else {
+    el.innerHTML = 'Mostrando del <strong>' + fmtFecha(desde) + '</strong> al <strong>' + fmtFecha(hasta) + '</strong>';
+  }
+}
+
+function fmtFecha(iso) {
+  var meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  var p = iso.split('-');
+  return parseInt(p[2], 10) + ' ' + meses[parseInt(p[1], 10) - 1] + ' ' + p[0];
+}
+
+// ─────────────────────────────────────────────
+//  CARGA DE DATOS
+// ─────────────────────────────────────────────
+function cargarDatos(desde, hasta) {
+  // Reset a spinner
+  resetUI();
+
+  google.script.run
+    .withSuccessHandler(function(datos) {
+      renderDashboard(datos);
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('chart-area').innerHTML =
+        '<div class="no-data">Error al cargar datos.<br><small>' + err + '</small></div>';
+    })
+    .getDatosDashboard(barberoActual, desde, hasta, rolActual === 'Dueño');
+}
+
+function resetUI() {
+  document.getElementById('k-servicios').textContent = '—';
+  document.getElementById('k-comision').textContent  = '—';
+  document.getElementById('k-propinas').textContent  = '—';
+  document.getElementById('k-total').textContent     = '—';
+  document.getElementById('chart-area').innerHTML    = '<div class="spinner"></div>';
+  document.getElementById('top-area').innerHTML      = '<div class="spinner"></div>';
+  document.getElementById('lista-area').innerHTML    = '<div class="spinner"></div>';
+  document.getElementById('btn-ver-mas').style.display = 'none';
+}
+
+// ─────────────────────────────────────────────
+//  RENDER
+// ─────────────────────────────────────────────
+function renderDashboard(d) {
+  var esDueno = (rolActual === 'Dueño');
+
+  // KPIs
+  document.getElementById('k-servicios').textContent = d.totalServicios || 0;
+  document.getElementById('k-comision').textContent  = pesos(d.totalComision || 0);
+  document.getElementById('k-propinas').textContent  = pesos(d.totalPropinas || 0);
+  document.getElementById('k-total').textContent     = pesos(d.totalCobrado || 0);
+  document.querySelector('.kpi.green .lbl').textContent = esDueno ? 'Pago barberos' : 'Tu pago';
+
+  // Actualizar título del gráfico
+  var titulo = filtroActual === 'hoy' ? 'Servicios por hora' :
+               filtroActual === 'semana' ? 'Servicios por día de la semana' :
+               filtroActual === 'anio' ? 'Servicios por mes' : 'Servicios por día';
+  document.getElementById('chart-title').textContent = titulo;
+
+  // Gráfico
+  renderChart(d.porPeriodo || []);
+
+  // Top servicios
+  renderTop(d.topServicios || []);
+
+  // Lista
+  todosServicios = d.servicios || [];
+  mostrandoN = 15;
+  renderLista();
+}
+
+function pesos(n) {
+  if (n >= 1000000) return '$' + (n / 1000000).toFixed(1).replace('.0', '') + 'M';
+  if (n >= 1000) return '$' + Math.round(n / 1000) + 'k';
+  return '$' + n;
+}
+
+function renderChart(datos) {
+  var area = document.getElementById('chart-area');
+  if (!datos.length) {
+    area.innerHTML = '<div class="no-data">No hay servicios en este período.</div>';
+    return;
+  }
+  var max = Math.max.apply(null, datos.map(function(x) { return x.count; })) || 1;
+  var html = '';
+  datos.forEach(function(item) {
+    var pct = Math.round((item.count / max) * 100);
+    html += '<div class="bar-row">' +
+      '<div class="bar-label">' + item.label + '</div>' +
+      '<div class="bar-track">' +
+        '<div class="bar-fill" style="width:' + pct + '%">' +
+          (pct > 20 ? '<span>' + pesos(item.total) + '</span>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div class="bar-count">' + item.count + '</div>' +
+    '</div>';
+  });
+  area.innerHTML = html;
+}
+
+function renderTop(datos) {
+  var area = document.getElementById('top-area');
+  if (!datos.length) {
+    area.innerHTML = '<div class="no-data">Sin datos en este período.</div>';
+    return;
+  }
+  var html = '';
+  datos.forEach(function(item) {
+    html += '<div class="srv-top-row">' +
+      '<span class="srv-top-name">' + item.nombre + '</span>' +
+      '<span class="srv-top-cnt">' + item.count + 'x · ' + pesos(item.total) + '</span>' +
+    '</div>';
+  });
+  area.innerHTML = html;
+}
+
+function renderLista() {
+  var area  = document.getElementById('lista-area');
+  var btnVM = document.getElementById('btn-ver-mas');
+  var slice = todosServicios.slice(0, mostrandoN);
+
+  if (!slice.length) {
+    area.innerHTML = '<div class="no-data">No hay servicios en este período.</div>';
+    btnVM.style.display = 'none';
+    return;
+  }
+
+  var html = '';
+  slice.forEach(function(s, i) {
+    var badgeClass = s.estado === 'Atendido' ? 'badge-ok' :
+                     s.estado === 'Cancelado' ? 'badge-cancel' : 'badge-pend';
+    var tocable = s.id ? ' tocable' : '';
+    var lineaSrv = rolActual === 'Dueño' && s.barbero
+      ? esc(s.servicio) + ' · ' + esc(s.barbero)
+      : esc(s.servicio);
+    html += '<div class="servicio-row' + tocable + '"' +
+             (s.id ? ' onclick="abrirCierre(' + i + ')"' : '') + '>' +
+      '<div class="srv-left">' +
+        '<div class="srv-fecha">' + fmtFecha(s.fecha) + ' · ' + esc(s.hora) + ' <span class="badge ' + badgeClass + '">' + esc(s.estado) + '</span></div>' +
+        '<div class="srv-nombre">' + esc(s.cliente) + '</div>' +
+        '<div class="srv-servicio">' + lineaSrv + '</div>' +
+      '</div>' +
+      '<div class="srv-right">' +
+        '<div class="srv-pago">' + pesos(s.pagoBarbero) + '</div>' +
+        '<div class="srv-total">cobrado: ' + pesos(s.total) + '</div>' +
+      '</div>' +
+      (s.id ? '<div class="srv-chevron">›</div>' : '') +
+    '</div>';
+  });
+  area.innerHTML = html;
+
+  if (todosServicios.length > mostrandoN) {
+    btnVM.style.display = 'block';
+    btnVM.textContent = 'Ver más (' + (todosServicios.length - mostrandoN) + ' restantes) ↓';
+  } else {
+    btnVM.style.display = 'none';
+  }
+}
+
+function verMas() {
+  mostrandoN += 15;
+  renderLista();
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
+    return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' })[c];
+  });
+}
+
+function pesosExacto(n) {
+  return '$' + (Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+/** Muestra un error en un recuadro .modal-error y lo trae a la vista. */
+function mostrarError(box, msg) {
+  if (typeof box === 'string') box = document.getElementById(box);
+  box.textContent = msg;
+  box.className = 'modal-error visible';
+  try { box.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+}
+function limpiarError(box) {
+  if (typeof box === 'string') box = document.getElementById(box);
+  box.textContent = ''; box.className = 'modal-error';
+}
+
+// ─────────────────────────────────────────────
+//  HOJA MODAL — CERRAR SERVICIO
+// ─────────────────────────────────────────────
+var cierreEstado = '';
+
+var OPCIONES_DEFAULT = {
+  metodos: ['Efectivo', 'Nequi', 'Daviplata', 'Transferencia', 'Tarjeta'],
+  estados: ['Atendido', 'No asistió', 'Cancelado'],
+  productos: []
+};
+
+function abrirCierre(i) {
+  var s = todosServicios[i];
+  if (!s) return;
+  if (!s.id) { alert('Esta cita no tiene código. Toca "↻ Actualizar" y vuelve a intentar.'); return; }
+  if (!opcionesCierre) {
+    google.script.run
+      .withSuccessHandler(function(o) { opcionesCierre = o || OPCIONES_DEFAULT; abrirCierre(i); })
+      .withFailureHandler(function() { opcionesCierre = OPCIONES_DEFAULT; abrirCierre(i); })
+      .getOpcionesCierre();
+    return;
+  }
+  cierreIdx = i;
+
+  document.getElementById('mc-titulo').textContent = s.servicio || 'Cerrar servicio';
+  document.getElementById('mc-sub').textContent =
+    s.cliente + ' · ' + fmtFecha(s.fecha) + ' ' + s.hora;
+  limpiarError('mc-error');
+
+  // Estado
+  cierreEstado = (s.estado && s.estado !== 'Pendiente') ? s.estado : 'Atendido';
+  var segE = document.getElementById('mc-estados');
+  segE.innerHTML = '';
+  opcionesCierre.estados.forEach(function(e) {
+    var b = document.createElement('button');
+    b.textContent = e;
+    b.className = (e === cierreEstado) ? 'on' : '';
+    b.onclick = function() {
+      cierreEstado = e;
+      var hijos = segE.children;
+      for (var j = 0; j < hijos.length; j++) hijos[j].className = (hijos[j].textContent === e) ? 'on' : '';
+    };
+    segE.appendChild(b);
+  });
+
+  // Método de pago
+  var selM = document.getElementById('mc-metodo');
+  selM.innerHTML = '<option value="">— Sin registrar —</option>';
+  opcionesCierre.metodos.forEach(function(m) {
+    var o = document.createElement('option');
+    o.value = m; o.textContent = m;
+    if (m === s.metodo) o.selected = true;
+    selM.appendChild(o);
+  });
+
+  // Propina y descuento
+  document.getElementById('mc-propina').value = s.propina ? s.propina : '';
+  document.getElementById('mc-descuento').value = s.descuento ? s.descuento : '';
+
+  // Productos (dinámico: lo que haya en el inventario)
+  var prodBox = document.getElementById('mc-productos');
+  prodBox.innerHTML = '<label>Productos</label>';
+  var prd = s.productos || {};
+  var listaProd = opcionesCierre.productos || [];
+  if (!listaProd.length) {
+    prodBox.innerHTML += '<div style="font-size:12px;color:var(--text-muted);">' +
+      'Sin productos. Corre "RIIF → Configurar inventario" en la hoja.</div>';
+  }
+  listaProd.forEach(function(p) {
+    var cur = prd[p.nombre] || { v: 0, r: 0 };
+    prodBox.appendChild(filaProducto(p.nombre, p.precio, cur.v || 0, cur.r || 0));
+  });
+
+  document.getElementById('modal-cierre').classList.add('abierto');
+}
+
+function filaProducto(nombre, precio, vendidas, cortesia) {
+  var row = document.createElement('div');
+  row.className = 'prod-row';
+  var n = esc(nombre);
+  row.innerHTML =
+    '<div class="prod-nombre">' + n + ' <small>' + pesosExacto(precio) + '</small></div>' +
+    '<div class="stepper"><span>Vend.</span>' +
+      '<button type="button" onclick="paso(this,-1)">−</button>' +
+      '<b data-prod="' + n + '" data-tipo="v">' + (vendidas || 0) + '</b>' +
+      '<button type="button" onclick="paso(this,1)">+</button>' +
+    '</div>' +
+    '<div class="stepper"><span>Cort.</span>' +
+      '<button type="button" onclick="paso(this,-1)">−</button>' +
+      '<b data-prod="' + n + '" data-tipo="r">' + (cortesia || 0) + '</b>' +
+      '<button type="button" onclick="paso(this,1)">+</button>' +
+    '</div>';
+  return row;
+}
+
+function paso(btn, d) {
+  var b = (d < 0) ? btn.nextElementSibling : btn.previousElementSibling;
+  var n = (parseInt(b.textContent, 10) || 0) + d;
+  if (n < 0) n = 0;
+  b.textContent = n;
+}
+
+function cerrarModal() {
+  document.getElementById('modal-cierre').classList.remove('abierto');
+  cierreIdx = -1;
+}
+
+function guardarCierre() {
+  if (cierreIdx < 0) return;
+  var s = todosServicios[cierreIdx];
+  var btn = document.getElementById('mc-guardar');
+  var errBox = document.getElementById('mc-error');
+
+  var productos = {};
+  document.querySelectorAll('#mc-productos b[data-prod]').forEach(function(b) {
+    var n = b.getAttribute('data-prod');
+    if (!productos[n]) productos[n] = { v: 0, r: 0 };
+    productos[n][b.getAttribute('data-tipo')] = parseInt(b.textContent, 10) || 0;
+  });
+
+  var datos = {
+    estado:    cierreEstado,
+    metodo:    document.getElementById('mc-metodo').value,
+    propina:   parseInt(document.getElementById('mc-propina').value, 10) || 0,
+    descuento: parseInt(document.getElementById('mc-descuento').value, 10) || 0,
+    productos: productos,
+    desde: desdeActual,
+    hasta: hastaActual
+  };
+
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  limpiarError(errBox);
+  var respondio = false;
+  var reloj = setTimeout(function() {
+    if (respondio) return;
+    btn.disabled = false; btn.textContent = 'Guardar cierre';
+    mostrarError(errBox, 'El servidor tardó demasiado. Revisa si el cierre quedó guardado (columna Estado del Registro) antes de repetir.');
+  }, 20000);
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      respondio = true; clearTimeout(reloj);
+      btn.disabled = false; btn.textContent = 'Guardar cierre';
+      if (!r || !r.ok) {
+        var msg = (r && r.error) || 'No se pudo guardar.';
+        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
+        mostrarError(errBox, msg);
+        return;
+      }
+      cerrarModal();
+      if (r.dashboard) renderDashboard(r.dashboard);
+      else cargarDatos(desdeActual, hastaActual);
+    })
+    .withFailureHandler(function(e) {
+      respondio = true; clearTimeout(reloj);
+      btn.disabled = false; btn.textContent = 'Guardar cierre';
+      mostrarError(errBox, 'No se pudo guardar: ' + ((e && e.message) || 'revisa tu conexión') + '.');
+    })
+    .cerrarServicioDashboard(tokenActual, s.id, datos);
+}
+
+// ═════════════════════════════════════════════
+//  PESTAÑA CITAS — AGENDA
+// ═════════════════════════════════════════════
+function cargarAgenda() {
+  var area = document.getElementById('agenda-area');
+  area.innerHTML = '<div class="spinner"></div>';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      citasCargadas = true;
+      agendaCitas = (r && r.citas) || [];
+      renderAgenda();
+    })
+    .withFailureHandler(function(e) {
+      area.innerHTML = '<div class="no-data">No se pudo cargar la agenda.</div>';
+    })
+    .getAgendaDashboard(tokenActual, 21);
+}
+
+function renderAgenda() {
+  var area = document.getElementById('agenda-area');
+  if (!agendaCitas.length) {
+    area.innerHTML = '<div class="no-data">No hay citas próximas.<br>Toca “＋ Nueva cita” para crear una.</div>';
+    return;
+  }
+  var html = '';
+  var diaPrev = '';
+  agendaCitas.forEach(function(c) {
+    if (c.fecha !== diaPrev) {
+      diaPrev = c.fecha;
+      html += '<div class="agenda-dia">' + fmtFechaLarga(c.fecha) + '</div>';
+    }
+    var sub = esc(c.servicio);
+    if (rolActual === 'Dueño' && c.barbero) sub += ' · ' + esc(c.barbero);
+    html += '<div class="cita-row" onclick="abrirEditar(\'' + esc(c.id) + '\')">' +
+      '<div class="cita-hora">' + esc(c.hora) + '</div>' +
+      '<div class="cita-mid">' +
+        '<div class="cita-cliente">' + esc(c.cliente) + '</div>' +
+        '<div class="cita-sub">' + sub + '</div>' +
+      '</div>' +
+      '<div class="srv-chevron">›</div>' +
+    '</div>';
+  });
+  area.innerHTML = html;
+}
+
+function fmtFechaLarga(iso) {
+  var dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  var meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  var p = iso.split('-');
+  var d = new Date(+p[0], +p[1] - 1, +p[2]);
+  return (iso === isoHoy() ? 'Hoy · ' : '') + dias[d.getDay()] + ' ' + (+p[2]) + ' ' + meses[+p[1] - 1];
+}
+
+// ═════════════════════════════════════════════
+//  MODAL NUEVA CITA
+// ═════════════════════════════════════════════
+function abrirNuevaCita() {
+  if (!formCita) {
+    google.script.run
+      .withSuccessHandler(function(o) { formCita = o; abrirNuevaCita(); })
+      .withFailureHandler(function() { alert('No se pudo cargar el formulario. Revisa tu conexión y vuelve a intentar.'); })
+      .getFormularioCita(tokenActual);
+    return;
+  }
+  limpiarError('nc-error');
+
+  if (!formCita.servicios || !formCita.servicios.length) {
+    document.getElementById('modal-nueva').classList.add('abierto');
+    mostrarError('nc-error', 'No hay servicios configurados en la hoja Config.');
+    return;
+  }
+  if (!formCita.barberos || !formCita.barberos.length) {
+    document.getElementById('modal-nueva').classList.add('abierto');
+    mostrarError('nc-error', 'No hay barberos configurados. Revisa la hoja Config (celdas A5, A6…).');
+    return;
+  }
+
+  var selS = document.getElementById('nc-servicio');
+  selS.innerHTML = '';
+  formCita.servicios.forEach(function(s) {
+    var o = document.createElement('option');
+    o.value = s.nombre;
+    o.textContent = s.nombre + ' · ' + pesosExacto(s.precio);
+    o.setAttribute('data-dur', s.duracion);
+    selS.appendChild(o);
+  });
+
+  var esDueno = (rolActual === 'Dueño' || formCita.rol === 'Dueño');
+  var campoB = document.getElementById('nc-campo-barbero');
+  var selB = document.getElementById('nc-barbero');
+  selB.innerHTML = '';
+  if (esDueno) {
+    var o0 = document.createElement('option');
+    o0.value = ''; o0.textContent = '— Elige el barbero —';
+    selB.appendChild(o0);
+  }
+  formCita.barberos.forEach(function(b) {
+    var o = document.createElement('option');
+    o.value = b; o.textContent = b;
+    selB.appendChild(o);
+  });
+  // El dueño SIEMPRE elige barbero; un barbero solo se agenda a sí mismo.
+  campoB.hidden = !esDueno && formCita.barberos.length <= 1;
+
+  document.getElementById('nc-cliente').value = '';
+  document.getElementById('nc-telefono').value = '';
+  document.getElementById('nc-email').value = '';
+  document.getElementById('nc-notas').value = '';
+  document.getElementById('nc-fecha').value = isoHoy();
+  document.getElementById('nc-hora').innerHTML = '<option value="">Elige el día primero</option>';
+
+  nuevaModo('ahora');
+  document.getElementById('modal-nueva').classList.add('abierto');
+}
+
+function nuevaModo(m) {
+  nuevaModoActual = m;
+  document.querySelectorAll('#nc-modo button').forEach(function(b) {
+    b.classList.toggle('on', b.getAttribute('data-modo') === m);
+  });
+  document.getElementById('nc-agendar').hidden = (m !== 'agendar');
+  if (m === 'agendar') ncCargarCupos();
+}
+
+function ncServicioCambio() {
+  if (nuevaModoActual === 'agendar') ncCargarCupos();
+}
+
+function ncCargarCupos() {
+  if (nuevaModoActual !== 'agendar') return;
+  var fecha = document.getElementById('nc-fecha').value;
+  var selS = document.getElementById('nc-servicio');
+  var opt = selS.options[selS.selectedIndex];
+  var dur = opt ? (parseInt(opt.getAttribute('data-dur'), 10) || 30) : 30;
+  var selH = document.getElementById('nc-hora');
+  if (!fecha) { selH.innerHTML = '<option value="">Elige el día primero</option>'; return; }
+  selH.innerHTML = '<option value="">Buscando cupos…</option>';
+
+  var barbero = document.getElementById('nc-campo-barbero').hidden
+    ? formCita.barberos[0]
+    : (document.getElementById('nc-barbero').value || '*');
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || r.cerrado || !r.cupos || !r.cupos.length) {
+        selH.innerHTML = '<option value="">Sin cupos ese día</option>';
+        return;
+      }
+      selH.innerHTML = '';
+      r.cupos.forEach(function(c) {
+        var o = document.createElement('option');
+        o.value = c.hora; o.textContent = c.hora;
+        selH.appendChild(o);
+      });
+    })
+    .withFailureHandler(function() { selH.innerHTML = '<option value="">Error al consultar</option>'; })
+    .getCupos(barbero, fecha, dur);
+}
+
+function cerrarNueva() {
+  document.getElementById('modal-nueva').classList.remove('abierto');
+}
+
+function guardarNuevaCita(forzar) {
+  var btn = document.getElementById('nc-guardar');
+  var errBox = document.getElementById('nc-error');
+  limpiarError(errBox);
+
+  var campoB = document.getElementById('nc-campo-barbero');
+  var barbero = campoB.hidden ? (formCita.barberos[0] || '') : document.getElementById('nc-barbero').value;
+
+  if (!document.getElementById('nc-cliente').value.trim()) {
+    mostrarError(errBox, 'Escribe el nombre del cliente.'); return;
+  }
+  if (!campoB.hidden && !barbero) { mostrarError(errBox, 'Elige el barbero.'); return; }
+
+  var d = {
+    modo: nuevaModoActual,
+    servicio: document.getElementById('nc-servicio').value,
+    barbero: barbero,
+    cliente: document.getElementById('nc-cliente').value.trim(),
+    telefono: document.getElementById('nc-telefono').value.trim(),
+    email: document.getElementById('nc-email').value.trim(),
+    notas: document.getElementById('nc-notas').value.trim(),
+    forzar: !!forzar
+  };
+  if (nuevaModoActual === 'agendar') {
+    d.fecha = document.getElementById('nc-fecha').value;
+    d.hora = document.getElementById('nc-hora').value;
+    if (!d.hora) { mostrarError(errBox, 'Elige la hora.'); return; }
+  }
+
+  btn.disabled = true; btn.textContent = 'Creando…';
+  var respondio = false;
+  var reloj = setTimeout(function() {
+    if (respondio) return;
+    btn.disabled = false; btn.textContent = 'Crear cita';
+    mostrarError(errBox, 'El servidor está tardando. Espera unos segundos y vuelve a intentar (revisa si la cita quedó creada antes de repetir).');
+  }, 20000);
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      respondio = true; clearTimeout(reloj);
+      btn.disabled = false; btn.textContent = 'Crear cita';
+      if (!r || !r.ok) {
+        var msg = (r && r.error) || 'No se pudo crear.';
+        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
+        if (r && r.fueraHorario) {
+          if (confirm(msg + '\n\n¿Crear la cita de todos modos?')) { guardarNuevaCita(true); }
+          return;
+        }
+        mostrarError(errBox, msg);
+        return;
+      }
+      cerrarNueva();
+      cargarAgenda();
+    })
+    .withFailureHandler(function() {
+      respondio = true; clearTimeout(reloj);
+      btn.disabled = false; btn.textContent = 'Crear cita';
+      mostrarError(errBox, 'No se pudo crear. Revisa tu conexión.');
+    })
+    .crearCitaDashboard(tokenActual, d);
+}
+
+// ═════════════════════════════════════════════
+//  MODAL EDITAR CITA
+// ═════════════════════════════════════════════
+function abrirEditar(id) {
+  editId = id;
+  limpiarError('ed-error');
+  document.getElementById('ed-sub').textContent = 'Cargando…';
+  document.getElementById('modal-editar').classList.add('abierto');
+
+  google.script.run
+    .withSuccessHandler(function(c) {
+      if (!c || c.error) { mostrarError('ed-error', (c && c.error) || 'No encontramos la cita.'); return; }
+      pintarEditar(c);
+    })
+    .withFailureHandler(function() { mostrarError('ed-error', 'No se pudo cargar la cita.'); })
+    .getCitaDashboard(tokenActual, id);
+}
+
+function pintarEditar(c) {
+  var ya = (c.enRegistro && c.estadoRegistro === 'Atendido');
+  document.getElementById('ed-sub').textContent = ya
+    ? 'Esta cita ya se cerró — para corregir el valor usa la pantalla de cierre.'
+    : (c.estadoRegistro ? 'En el registro: ' + c.estadoRegistro : 'Confirmada');
+
+  document.getElementById('ed-fecha').value = c.fecha;
+  document.getElementById('ed-hora').value = c.hora;
+  document.getElementById('ed-cliente').value = c.cliente;
+  document.getElementById('ed-telefono').value = c.telefono;
+  document.getElementById('ed-notas').value = c.notas || '';
+
+  var selB = document.getElementById('ed-barbero');
+  selB.innerHTML = '';
+  var barberos = (formCita && formCita.barberos && formCita.barberos.length > 1)
+    ? formCita.barberos.slice() : [c.barbero];
+  if (barberos.indexOf(c.barbero) < 0) barberos.push(c.barbero);
+  barberos.forEach(function(b) {
+    var o = document.createElement('option');
+    o.value = b; o.textContent = b;
+    if (b === c.barbero) o.selected = true;
+    selB.appendChild(o);
+  });
+  selB.disabled = (barberos.length <= 1);
+
+  var selS = document.getElementById('ed-servicio');
+  selS.innerHTML = '';
+  var servs = (formCita && formCita.servicios) ? formCita.servicios : [{ nombre: c.servicio, precio: c.precio }];
+  servs.forEach(function(s) {
+    var o = document.createElement('option');
+    o.value = s.nombre;
+    o.textContent = s.nombre + ' · ' + pesosExacto(s.precio);
+    if (s.nombre === c.servicio) o.selected = true;
+    selS.appendChild(o);
+  });
+
+  var dis = ya;
+  ['ed-fecha','ed-hora','ed-barbero','ed-servicio','ed-cliente','ed-telefono','ed-notas','ed-guardar']
+    .forEach(function(idg) { document.getElementById(idg).disabled = dis; });
+}
+
+function cerrarEditar() {
+  document.getElementById('modal-editar').classList.remove('abierto');
+  editId = '';
+}
+
+function guardarEdicion() {
+  if (!editId) return;
+  var btn = document.getElementById('ed-guardar');
+  var errBox = document.getElementById('ed-error');
+  limpiarError(errBox);
+
+  var cambios = {
+    fecha: document.getElementById('ed-fecha').value,
+    hora: document.getElementById('ed-hora').value,
+    barbero: document.getElementById('ed-barbero').value,
+    servicio: document.getElementById('ed-servicio').value,
+    cliente: document.getElementById('ed-cliente').value.trim(),
+    telefono: document.getElementById('ed-telefono').value.trim(),
+    notas: document.getElementById('ed-notas').value.trim()
+  };
+
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false; btn.textContent = 'Guardar cambios';
+      if (!r || !r.ok) {
+        var msg = (r && r.error) || 'No se pudo guardar.';
+        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
+        mostrarError(errBox, msg);
+        return;
+      }
+      cerrarEditar();
+      cargarAgenda();
+    })
+    .withFailureHandler(function() {
+      btn.disabled = false; btn.textContent = 'Guardar cambios';
+      mostrarError(errBox, 'No se pudo guardar. Revisa tu conexión.');
+    })
+    .modificarCitaDashboard(tokenActual, editId, cambios);
+}
+
+function cancelarCitaActual() {
+  if (!editId) return;
+  if (!confirm('¿Cancelar esta cita? Se libera el cupo y se le avisa al barbero.')) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || !r.ok) { mostrarError('ed-error', (r && r.error) || 'No se pudo cancelar.'); return; }
+      cerrarEditar();
+      cargarAgenda();
+    })
+    .withFailureHandler(function() { mostrarError('ed-error', 'No se pudo cancelar. Revisa tu conexión.'); })
+    .cancelarCitaDashboard(tokenActual, editId);
+}
+
+function avisarBarberoCita() {
+  if (!editId) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || !r.ok) { alert((r && r.error) || 'No se pudo generar el aviso.'); return; }
+      var w = window.open(r.link, '_blank');
+      if (!w) prompt('Copia este enlace y ábrelo en WhatsApp:', r.link);
+    })
+    .withFailureHandler(function() { alert('No se pudo generar el aviso.'); })
+    .notificarCitaDashboard(tokenActual, editId);
+}
+
+// ═════════════════════════════════════════════
+//  PESTAÑA INVENTARIO  (solo dueño)
+// ═════════════════════════════════════════════
+function cargarInventario() {
+  var area = document.getElementById('inv-area');
+  area.innerHTML = '<div class="spinner"></div>';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      inventarioCargado = true;
+      inventario = (r && r.productos) || [];
+      renderInventario();
+    })
+    .withFailureHandler(function() {
+      area.innerHTML = '<div class="no-data">No se pudo cargar el inventario.</div>';
+    })
+    .getInventarioDashboard(tokenActual);
+}
+
+function renderInventario(r) {
+  if (r && r.productos) { inventario = r.productos; inventarioCargado = true; }
+  var area = document.getElementById('inv-area');
+  if (!inventario.length) {
+    area.innerHTML = '<div class="no-data">No hay productos. Toca "＋ Producto nuevo".</div>';
+    return;
+  }
+  var html = '';
+  inventario.forEach(function(p, i) {
+    html += '<div class="inv-card">' +
+      '<div class="inv-top">' +
+        '<div><div class="inv-nombre">' + esc(p.producto) + '</div>' +
+        '<div class="inv-meta">Precio ' + pesosExacto(p.precio) + ' · vendidas ' + p.vendidas +
+        ' · $ vendido ' + pesosExacto(p.valorVendido) + '</div></div>' +
+        '<div class="inv-stock' + (p.bajo ? ' bajo' : '') + '">' + p.stockActual + '</div>' +
+      '</div>' +
+      '<div class="inv-acciones">' +
+        '<button onclick="reponerProducto(' + i + ')">Reponer stock</button>' +
+        '<button onclick="cambiarPrecioProducto(' + i + ')">Cambiar precio</button>' +
+      '</div>' +
+    '</div>';
+  });
+  area.innerHTML = html;
+}
+
+function reponerProducto(i) {
+  var p = inventario[i]; if (!p) return;
+  var n = prompt('¿Cuántas unidades de "' + p.producto + '" entran?', '12');
+  if (n === null) return;
+  n = parseInt(n, 10);
+  if (isNaN(n) || n === 0) { alert('Cantidad inválida.'); return; }
+  var area = document.getElementById('inv-area');
+  area.innerHTML = '<div class="spinner"></div>';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || !r.ok) { alert((r && r.error) || 'No se pudo reponer.'); renderInventario(); return; }
+      renderInventario(r.inventario);
+    })
+    .withFailureHandler(function() { alert('No se pudo reponer. Revisa tu conexión.'); renderInventario(); })
+    .reponerStockDashboard(tokenActual, p.producto, n);
+}
+
+function cambiarPrecioProducto(i) {
+  var p = inventario[i]; if (!p) return;
+  var v = prompt('Nuevo precio de "' + p.producto + '" (en pesos):', p.precio);
+  if (v === null) return;
+  v = parseInt(v, 10);
+  if (isNaN(v) || v < 0) { alert('Precio inválido.'); return; }
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || !r.ok) { alert((r && r.error) || 'No se pudo cambiar.'); return; }
+      opcionesCierre = null;   // el catálogo de productos cambió
+      renderInventario(r.inventario);
+    })
+    .withFailureHandler(function() { alert('No se pudo cambiar. Revisa tu conexión.'); })
+    .setPrecioProductoDashboard(tokenActual, p.producto, v);
+}
+
+function abrirNuevoProducto() {
+  limpiarError('np-error');
+  document.getElementById('np-nombre').value = '';
+  document.getElementById('np-precio').value = '';
+  document.getElementById('np-stock').value = '';
+  document.getElementById('modal-producto').classList.add('abierto');
+}
+function cerrarProducto() {
+  document.getElementById('modal-producto').classList.remove('abierto');
+}
+function guardarNuevoProducto() {
+  var btn = document.getElementById('np-guardar');
+  var datos = {
+    nombre: document.getElementById('np-nombre').value.trim(),
+    precio: parseInt(document.getElementById('np-precio').value, 10) || 0,
+    stockInicial: parseInt(document.getElementById('np-stock').value, 10) || 0
+  };
+  if (datos.nombre.length < 2) { mostrarError('np-error', 'Escribe el nombre.'); return; }
+  btn.disabled = true; btn.textContent = 'Creando…';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false; btn.textContent = 'Crear producto';
+      if (!r || !r.ok) {
+        var msg = (r && r.error) || 'No se pudo crear.';
+        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
+        mostrarError('np-error', msg); return;
+      }
+      opcionesCierre = null;   // el catálogo de productos cambió
+      cerrarProducto();
+      renderInventario(r.inventario);
+    })
+    .withFailureHandler(function() {
+      btn.disabled = false; btn.textContent = 'Crear producto';
+      mostrarError('np-error', 'No se pudo crear. Revisa tu conexión.');
+    })
+    .crearProductoDashboard(tokenActual, datos);
+}
+</script>
+</body>
+</html>
