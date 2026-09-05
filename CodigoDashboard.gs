@@ -628,8 +628,8 @@ function getAgendaDashboard(token, dias) {
 
 /**
  * Crea una cita desde el dashboard.
- * d = { modo:'ahora'|'agendar', servicio, barbero, fecha, hora, cliente,
- *       telefono, email, notas }
+ * d = { modo:'ahora'|'agendar', servicios:[nombre,...], barbero, fecha, hora,
+ *       cliente, telefono, email, notas }
  */
 function crearCitaDashboard(token, d) {
   var s;
@@ -637,8 +637,8 @@ function crearCitaDashboard(token, d) {
 
   d = d || {};
   var cfg = leerConfig();
-  var servicio = cfg.servicios.filter(function (x) { return x.nombre === d.servicio; })[0];
-  if (!servicio) return { ok: false, error: 'Ese servicio ya no está disponible.' };
+  var combo = _combinarServicios_(cfg, d.servicios || d.servicio);
+  if (!combo.ok) return { ok: false, error: combo.error };
 
   var cliente = String(d.cliente || '').trim();
   var tel = String(d.telefono || '').replace(/\D/g, '');
@@ -662,7 +662,7 @@ function crearCitaDashboard(token, d) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !hora) {
         return { ok: false, error: 'Falta el día o la hora.' };
       }
-      var estado = getCupos(barbero || '*', fecha, servicio.duracion);
+      var estado = getCupos(barbero || '*', fecha, combo.duracion);
       var cupo = estado.cupos.filter(function (c) { return c.hora === hora; })[0];
       if (!cupo) return { ok: false, error: 'Ese horario no está libre. Escoge otro.' };
       asignado = (barbero && barbero !== '*' && cupo.barberos.indexOf(barbero) >= 0)
@@ -676,16 +676,16 @@ function crearCitaDashboard(token, d) {
 
       // El modo "Ahora" también respeta el horario del barbero, salvo forzar.
       if (!d.forzar) {
-        var chk = _validarFranja_(barbero, fecha, hora, servicio.duracion);
+        var chk = _validarFranja_(barbero, fecha, hora, combo.duracion);
         if (!chk.ok) return { ok: false, fueraHorario: true, error: chk.error };
       }
     }
 
     var r = {
       id: nuevoIdCita_(),
-      fecha: fecha, hora: hora, fin: aTexto(aMin(hora) + servicio.duracion),
+      fecha: fecha, hora: hora, fin: aTexto(aMin(hora) + combo.duracion),
       barbero: asignado,
-      servicio: servicio.nombre, precio: servicio.precio, duracion: servicio.duracion,
+      servicio: combo.nombre, precio: combo.precio, duracion: combo.duracion,
       nombre: cliente, telefono: tel, notas: String(d.notas || '').trim()
     };
 
@@ -772,9 +772,21 @@ function modificarCitaDashboard(token, id, cambios) {
       }
 
       var cfg = leerConfig();
-      var servNombre = cambios.servicio ? String(cambios.servicio).trim() : String(f[6]).trim();
-      var serv = cfg.servicios.filter(function (x) { return x.nombre === servNombre; })[0];
-      if (!serv) return { ok: false, error: 'Ese servicio no existe.' };
+      var combo;
+      if (cambios.servicios && cambios.servicios.length) {
+        // El barbero eligió servicios nuevos: deben existir en Config.
+        combo = _combinarServicios_(cfg, cambios.servicios);
+        if (!combo.ok) return { ok: false, error: combo.error };
+      } else {
+        // No tocó los servicios: tratar de reconstruir el combo actual para
+        // no perder precio/duración si viene de una cita con varios servicios.
+        combo = _combinarServicios_(cfg, String(f[6]).trim().split(SEPARADOR_COMBO));
+        if (!combo.ok) {
+          // Nombre viejo o escrito a mano que ya no coincide con Config:
+          // se conserva tal cual en vez de inventar un valor.
+          combo = { ok: true, nombre: String(f[6]).trim(), precio: Number(f[8]) || 0, duracion: Number(f[7]) || 0 };
+        }
+      }
 
       var fecha   = cambios.fecha ? String(cambios.fecha).slice(0, 10) : aISO(f[2]);
       var hora    = cambios.hora ? aHHMM(cambios.hora) : aHHMM(f[3]);
@@ -790,10 +802,10 @@ function modificarCitaDashboard(token, id, cambios) {
       }
       if (cliente.length < 3) return { ok: false, error: 'El nombre del cliente es muy corto.' };
 
-      var finTxt = aTexto(aMin(hora) + serv.duracion);
+      var finTxt = aTexto(aMin(hora) + combo.duracion);
       var r = {
         id: id, fecha: fecha, hora: hora, fin: finTxt, barbero: barbero,
-        servicio: serv.nombre, precio: serv.precio, duracion: serv.duracion,
+        servicio: combo.nombre, precio: combo.precio, duracion: combo.duracion,
         nombre: cliente, telefono: tel, notas: notas
       };
 
@@ -802,9 +814,9 @@ function modificarCitaDashboard(token, id, cambios) {
       h.getRange(fila, 4).setValue(hora);
       h.getRange(fila, 5).setValue(finTxt);
       h.getRange(fila, 6).setValue(barbero);
-      h.getRange(fila, 7).setValue(serv.nombre);
-      h.getRange(fila, 8).setValue(serv.duracion);
-      h.getRange(fila, 9).setValue(serv.precio);
+      h.getRange(fila, 7).setValue(combo.nombre);
+      h.getRange(fila, 8).setValue(combo.duracion);
+      h.getRange(fila, 9).setValue(combo.precio);
       h.getRange(fila, 10).setValue(cliente);
       h.getRange(fila, 11).setValue(tel);
       h.getRange(fila, 14).setValue(notas);
@@ -830,14 +842,14 @@ function modificarCitaDashboard(token, id, cambios) {
         hg.getRange(filaReg, 1).setNumberFormat('DD/MM/YYYY');
         hg.getRange(filaReg, 2).setValue(hora);
         hg.getRange(filaReg, 3).setValue(barbero);
-        hg.getRange(filaReg, 6).setValue(serv.nombre);
-        hg.getRange(filaReg, 7).setValue(serv.precio);
-        hg.getRange(filaReg, 9).setValue(Math.max(serv.precio - descAct, 0));
+        hg.getRange(filaReg, 6).setValue(combo.nombre);
+        hg.getRange(filaReg, 7).setValue(combo.precio);
+        hg.getRange(filaReg, 9).setValue(Math.max(combo.precio - descAct, 0));
         hg.getRange(filaReg, 17).setValue(fechaReal.getFullYear());
         hg.getRange(filaReg, 18).setValue(fechaReal.getMonth() + 1);
         hg.getRange(filaReg, 19).setValue(DIAS[(fechaReal.getDay() + 6) % 7]);
         hg.getRange(filaReg, 20).setValue(parseInt(hora.split(':')[0], 10));
-        hg.getRange(filaReg, 21).setValue(serv.duracion);
+        hg.getRange(filaReg, 21).setValue(combo.duracion);
       }
 
       return { ok: true };

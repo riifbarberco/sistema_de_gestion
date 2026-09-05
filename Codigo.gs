@@ -202,7 +202,39 @@ function leerConfig() {
  
   return { barberos: barberos, servicios: servicios };
 }
- 
+
+// Cómo se unen los nombres cuando una cita tiene varios servicios.
+var SEPARADOR_COMBO = ' + ';
+
+/**
+ * Junta uno o varios servicios de Config en un solo "combo": nombre unido,
+ * precio y duración sumados. Lo usan crearReserva, crearCitaDashboard y
+ * modificarCitaDashboard para que una cita pueda tener más de un servicio.
+ *
+ * @param {Object} cfg     - resultado de leerConfig()
+ * @param {string|string[]} nombres - un nombre o varios
+ * @returns {Object} { ok, nombre, precio, duracion } o { ok:false, error }
+ */
+function _combinarServicios_(cfg, nombres) {
+  nombres = (Array.isArray(nombres) ? nombres : [nombres])
+    .map(function (n) { return String(n || '').trim(); })
+    .filter(Boolean);
+  if (!nombres.length) return { ok: false, error: 'Elige al menos un servicio.' };
+
+  var elegidos = [];
+  for (var i = 0; i < nombres.length; i++) {
+    var s = cfg.servicios.filter(function (x) { return x.nombre === nombres[i]; })[0];
+    if (!s) return { ok: false, error: '"' + nombres[i] + '" ya no está disponible. Recarga la página.' };
+    elegidos.push(s);
+  }
+  return {
+    ok: true,
+    nombre: elegidos.map(function (s) { return s.nombre; }).join(SEPARADOR_COMBO),
+    precio: elegidos.reduce(function (a, s) { return a + s.precio; }, 0),
+    duracion: elegidos.reduce(function (a, s) { return a + s.duracion; }, 0)
+  };
+}
+
 function leerHorarios() {
   var h = libro().getSheetByName(HOJA_HORARIOS);
   if (!h) return {};
@@ -436,32 +468,32 @@ function crearReserva(d) {
  
   try {
     var cfg = leerConfig();
-    var servicio = cfg.servicios.filter(function (s) { return s.nombre === d.servicio; })[0];
-    if (!servicio) return { ok: false, error: 'Ese servicio ya no está disponible.' };
- 
+    var combo = _combinarServicios_(cfg, d.servicios || d.servicio);
+    if (!combo.ok) return { ok: false, error: combo.error };
+
     var nombre = String(d.nombre || '').trim();
     var tel = String(d.telefono || '').replace(/\D/g, '');
     if (nombre.length < 3) return { ok: false, error: 'Escribe tu nombre completo.' };
     if (tel.length < 7) return { ok: false, error: 'Escribe un número de teléfono válido.' };
- 
-    var estado = getCupos(d.barbero, d.fecha, servicio.duracion);
+
+    var estado = getCupos(d.barbero, d.fecha, combo.duracion);
     var cupo = estado.cupos.filter(function (c) { return c.hora === d.hora; })[0];
     if (!cupo) return { ok: false, error: 'Ese horario se acaba de ocupar. Escoge otro, por favor.' };
- 
+
     var asignado = cupo.barberos[0];
     if (cupo.barberos.length > 1) {
       var conteo = {};
       cupo.barberos.forEach(function (n) { conteo[n] = ocupacion(n, d.fecha).length; });
       asignado = cupo.barberos.slice().sort(function (a, b) { return conteo[a] - conteo[b]; })[0];
     }
- 
-    var finTxt = aTexto(aMin(d.hora) + servicio.duracion);
+
+    var finTxt = aTexto(aMin(d.hora) + combo.duracion);
     var id = nuevoIdCita_();
 
     var r = {
       id: id, fecha: d.fecha, hora: d.hora, fin: finTxt, barbero: asignado,
-      servicio: servicio.nombre, precio: servicio.precio,
-      duracion: servicio.duracion, nombre: nombre, telefono: tel,
+      servicio: combo.nombre, precio: combo.precio,
+      duracion: combo.duracion, nombre: nombre, telefono: tel,
       notas: String(d.notas || '').trim()
     };
 

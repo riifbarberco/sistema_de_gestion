@@ -55,8 +55,14 @@ h2{font-size:25px;font-weight:500;letter-spacing:-.015em;line-height:1.2;margin-
 .opcion.elegida{border-left-color:var(--laton);background:#1C1917}
 .op-txt{flex:1;min-width:0}
 .op-nom{font-weight:500;font-size:15px;line-height:1.3}
+.op-check{color:var(--laton-claro);font-weight:700;visibility:hidden}
+.opcion.elegida .op-check{visibility:visible}
 .op-sub{font-size:12px;color:var(--tenue);margin-top:3px}
 .op-precio{font-weight:600;font-size:15px;color:var(--laton-claro);white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* ---- resumen de servicios elegidos (paso 1) ---- */
+.resumenServ{font-size:13px;color:var(--tenue);margin:16px 0 4px;line-height:1.5;display:none}
+.resumenServ b{color:var(--laton-claro);font-weight:600}
 
 /* ---- días ---- */
 .dias{display:flex;gap:7px;overflow-x:auto;padding-bottom:10px;margin:0 -20px;padding-left:20px;padding-right:20px;scrollbar-width:none}
@@ -137,13 +143,16 @@ textarea{resize:vertical;min-height:64px}
   <!-- 1. SERVICIO -->
   <section class="paso activo" id="p1">
     <div class="rotulo">Paso 1 de 5</div>
-    <h2>¿Que servicio necesitas?</h2>
+    <h2>¿Qué servicios necesitas?</h2>
+    <p class="nota">Puedes elegir más de uno, por ejemplo corte y barba.</p>
     <div class="lista" id="servicios"><div class="cargando">Cargando servicios…</div></div>
+    <div class="resumenServ" id="resumenServicios"></div>
+    <button class="btn" id="btnContinuarServicios" disabled onclick="continuarServicios()">Continuar</button>
   </section>
 
   <!-- 2. BARBERO -->
   <section class="paso" id="p2">
-    <button class="atras" onclick="ir(1)">← Cambiar servicio</button>
+    <button class="atras" onclick="ir(1)">← Cambiar servicios</button>
     <div class="rotulo">Paso 2 de 5</div>
     <h2>¿Con quién?</h2>
     <div class="lista" id="barberos"></div>
@@ -199,7 +208,11 @@ textarea{resize:vertical;min-height:64px}
 </div>
 
 <script>
-var D = null, sel = { servicio:null, barbero:null, fecha:null, hora:null }, pasoActual = 1, datosCupos = null;
+var D = null, sel = { servicios:[], barbero:null, fecha:null, hora:null }, pasoActual = 1, datosCupos = null;
+
+function duracionSel(){ return sel.servicios.reduce(function(a,s){ return a+s.duracion; }, 0); }
+function precioSel(){ return sel.servicios.reduce(function(a,s){ return a+s.precio; }, 0); }
+function nombresSel(){ return sel.servicios.map(function(s){ return s.nombre; }).join(' + '); }
 
 function ir(n){
   pasoActual = n;
@@ -235,10 +248,10 @@ function arranque(d){
   d.servicios.forEach(function(s){
     var b = document.createElement('button');
     b.className = 'opcion';
-    b.innerHTML = '<span class="op-txt"><span class="op-nom">'+esc(s.nombre)+'</span>' +
+    b.innerHTML = '<span class="op-txt"><span class="op-nom"><span class="op-check">✓ </span>'+esc(s.nombre)+'</span>' +
                   '<span class="op-sub">'+duracionTxt(s.duracion)+'</span></span>' +
                   '<span class="op-precio">'+pesos(s.precio)+'</span>';
-    b.onclick = function(){ sel.servicio = s; pintarBarberos(); ir(2); };
+    b.onclick = function(){ toggleServicio(s, b); };
     cs.appendChild(b);
   });
 
@@ -256,6 +269,30 @@ function arranque(d){
     };
     cd.appendChild(b);
   });
+}
+
+function toggleServicio(s, btn){
+  var idx = sel.servicios.indexOf(s);
+  if (idx >= 0) { sel.servicios.splice(idx, 1); btn.classList.remove('elegida'); }
+  else { sel.servicios.push(s); btn.classList.add('elegida'); }
+  actualizarResumenServicios();
+}
+
+function actualizarResumenServicios(){
+  var box = document.getElementById('resumenServicios');
+  var btn = document.getElementById('btnContinuarServicios');
+  var n = sel.servicios.length;
+  if (!n){ box.style.display = 'none'; btn.disabled = true; return; }
+  box.style.display = 'block';
+  box.innerHTML = n + (n===1 ? ' servicio elegido' : ' servicios elegidos') +
+                   ' · ' + duracionTxt(duracionSel()) + ' · <b>' + pesos(precioSel()) + '</b>';
+  btn.disabled = false;
+}
+
+function continuarServicios(){
+  if (!sel.servicios.length) return;
+  pintarBarberos();
+  ir(2);
 }
 
 function pintarBarberos(){
@@ -280,7 +317,7 @@ function cargarCupos(){
   google.script.run.withSuccessHandler(pintarCupos).withFailureHandler(function(){
     document.getElementById('zonaHoras').innerHTML =
       '<div class="error">No pudimos consultar la agenda. Intenta de nuevo.</div>';
-  }).getCupos(sel.barbero, sel.fecha, sel.servicio.duracion);
+  }).getCupos(sel.barbero, sel.fecha, duracionSel());
 }
 
 function pintarCupos(r){
@@ -292,8 +329,8 @@ function pintarCupos(r){
     return;
   }
   if (!r.cupos.length){
-    z.innerHTML = '<div class="vacio">No queda cupo ese día para <b>'+esc(sel.servicio.nombre)+'</b>' +
-                  ' (' + duracionTxt(sel.servicio.duracion) + ').<br>Prueba otro día u otro servicio más corto.</div>';
+    z.innerHTML = '<div class="vacio">No queda cupo ese día para <b>'+esc(nombresSel())+'</b>' +
+                  ' (' + duracionTxt(duracionSel()) + ').<br>Prueba otro día o elige menos servicios.</div>';
     return;
   }
 
@@ -307,8 +344,8 @@ function pintarCupos(r){
     html += '<div class="ocupado" style="left:'+i+'%;width:'+w+'%"></div>';
   });
   html += '<div class="tuyo" id="tuyo" style="left:0;width:0"></div></div>' +
-          '<div class="silla-pie" id="sillaPie">Tu <b>'+esc(sel.servicio.nombre)+'</b> ocupa ' +
-          duracionTxt(sel.servicio.duracion)+'. Escoge dónde va.</div></div>';
+          '<div class="silla-pie" id="sillaPie">Tu <b>'+esc(nombresSel())+'</b> ocupa ' +
+          duracionTxt(duracionSel())+'. Escoge dónde va.</div></div>';
 
   html += '<div class="horas">';
   r.cupos.forEach(function(c){
@@ -324,12 +361,12 @@ function pintarCupos(r){
       sel.hora = h;
       for (var k=0;k<botones.length;k++) botones[k].classList.remove('elegida');
       btn.classList.add('elegida');
-      var ini = min(h), fin = ini + sel.servicio.duracion;
+      var ini = min(h), fin = ini + duracionSel();
       var t = document.getElementById('tuyo');
       t.style.left = ((ini-abre)/total*100)+'%';
       t.style.width = ((fin-ini)/total*100)+'%';
       document.getElementById('sillaPie').innerHTML =
-        'De <b>'+h+'</b> a <b>'+txt(fin)+'</b> · '+duracionTxt(sel.servicio.duracion);
+        'De <b>'+h+'</b> a <b>'+txt(fin)+'</b> · '+duracionTxt(duracionSel());
       setTimeout(function(){ pintarResumen(); ir(5); }, 260);
     };})(botones[i]);
   }
@@ -341,12 +378,13 @@ function txt(m){ return ('0'+Math.floor(m/60)).slice(-2)+':'+('0'+(m%60)).slice(
 function pintarResumen(){
   var dia = D.dias.filter(function(d){ return d.iso===sel.fecha; })[0];
   var quien = (sel.barbero==='*') ? 'El primero disponible' : sel.barbero;
+  var filasServ = sel.servicios.map(function(s){ return fila(s.nombre, pesos(s.precio)); }).join('');
   document.getElementById('resumen').innerHTML =
-    fila('Servicio', sel.servicio.nombre) +
+    filasServ +
     fila('Cuándo', dia.dia+' '+dia.num+' '+dia.mes+', '+sel.hora) +
     fila('Con', quien) +
-    fila('Dura', duracionTxt(sel.servicio.duracion)) +
-    '<div class="fila total"><span>Valor</span><b>'+pesos(sel.servicio.precio)+'</b></div>';
+    fila('Dura', duracionTxt(duracionSel())) +
+    '<div class="fila total"><span>Valor</span><b>'+pesos(precioSel())+'</b></div>';
 }
 
 function fila(k,v){ return '<div class="fila"><span>'+esc(k)+'</span><b>'+esc(v)+'</b></div>'; }
@@ -376,7 +414,8 @@ function confirmar(){
     btn.disabled = false; btn.textContent = 'Confirmar mi cita';
     caja.innerHTML = '<div class="error">No se pudo guardar. Revisa tu conexión e intenta otra vez.</div>';
   }).crearReserva({
-    servicio: sel.servicio.nombre, barbero: sel.barbero, fecha: sel.fecha, hora: sel.hora,
+    servicios: sel.servicios.map(function(s){ return s.nombre; }),
+    barbero: sel.barbero, fecha: sel.fecha, hora: sel.hora,
     nombre: nombre, telefono: tel,
     email: document.getElementById('mail').value.trim(),
     notas: document.getElementById('notas').value.trim()

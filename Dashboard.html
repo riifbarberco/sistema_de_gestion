@@ -504,6 +504,25 @@
   }
   .inv-acciones button:hover { border-color: var(--gold-dim); color: var(--gold); }
 
+  /* ──── LISTA DE SERVICIOS (selección múltiple: nueva cita / editar cita) ──── */
+  .serv-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+  .serv-item {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; cursor: pointer; font-size: 13px;
+  }
+  .serv-item.on { border-color: var(--gold); background: rgba(201,168,76,0.12); }
+  .serv-item .chk {
+    width: 16px; height: 16px; border: 1px solid var(--border); border-radius: 4px;
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: #000; font-weight: 700;
+  }
+  .serv-item.on .chk { background: var(--gold); border-color: var(--gold); }
+  .serv-item .serv-nom { flex: 1; }
+  .serv-item .serv-dur { color: var(--text-muted); font-size: 11px; }
+  .serv-resumen { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  .serv-resumen b { color: var(--gold); }
+
   /* ──── HOJA MODAL (cierre de servicio) ──── */
   .modal-fondo {
     position: fixed; inset: 0;
@@ -773,8 +792,9 @@
     </div>
 
     <div class="campo">
-      <label>Servicio</label>
-      <select id="nc-servicio" onchange="ncServicioCambio()"></select>
+      <label>Servicios</label>
+      <div class="serv-list" id="nc-servicios"></div>
+      <div class="serv-resumen" id="nc-servicios-resumen"></div>
     </div>
 
     <div class="campo" id="nc-campo-barbero">
@@ -841,7 +861,11 @@
     <div class="campo"><label>Día</label><input id="ed-fecha" type="date"></div>
     <div class="campo"><label>Hora</label><input id="ed-hora" type="time" step="300"></div>
     <div class="campo"><label>Barbero</label><select id="ed-barbero"></select></div>
-    <div class="campo"><label>Servicio</label><select id="ed-servicio"></select></div>
+    <div class="campo">
+      <label>Servicios</label>
+      <div class="serv-list" id="ed-servicios"></div>
+      <div class="serv-resumen" id="ed-servicios-resumen"></div>
+    </div>
     <div class="campo"><label>Cliente</label><input id="ed-cliente" type="text" autocomplete="off"></div>
     <div class="campo"><label>Teléfono</label><input id="ed-telefono" type="tel" inputmode="numeric"></div>
     <div class="campo"><label>Nota</label><textarea id="ed-notas"></textarea></div>
@@ -873,6 +897,8 @@ var agendaCitas    = [];
 var citasCargadas  = false;
 var editId         = '';
 var nuevaModoActual = 'ahora';
+var ncServiciosSel = [];   // servicios marcados en el modal "Nueva cita"
+var edServiciosSel = [];   // servicios marcados en el modal "Editar cita"
 var inventarioCargado = false;
 var inventario     = [];
 
@@ -1327,6 +1353,52 @@ function pesosExacto(n) {
   return '$' + (Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
+function duracionCorta(m) {
+  var h = Math.floor(m / 60), r = m % 60;
+  if (h && r) return h + 'h ' + r + 'min';
+  if (h) return h + 'h';
+  return r + 'min';
+}
+
+/**
+ * Lista de servicios de selección múltiple, reutilizada por "Nueva cita" y
+ * "Editar cita". `seleccion` es un array que se muta en el sitio (push/splice)
+ * para que el llamador conserve la misma referencia.
+ */
+function renderServiciosCheck(contenedorId, catalogo, seleccion, alCambiar) {
+  var box = document.getElementById(contenedorId);
+  if (!box) return;
+  box.innerHTML = '';
+  catalogo.forEach(function(s) {
+    var on = seleccion.some(function(x) { return x.nombre === s.nombre; });
+    var row = document.createElement('div');
+    row.className = 'serv-item' + (on ? ' on' : '');
+    row.innerHTML =
+      '<span class="chk">' + (on ? '✓' : '') + '</span>' +
+      '<span class="serv-nom">' + esc(s.nombre) + ' <span class="serv-dur">' + duracionCorta(s.duracion) + '</span></span>' +
+      '<b>' + pesosExacto(s.precio) + '</b>';
+    row.onclick = function() {
+      var idx = seleccion.map(function(x) { return x.nombre; }).indexOf(s.nombre);
+      if (idx >= 0) seleccion.splice(idx, 1); else seleccion.push(s);
+      renderServiciosCheck(contenedorId, catalogo, seleccion, alCambiar);
+      if (alCambiar) alCambiar();
+    };
+    box.appendChild(row);
+  });
+}
+
+/** Línea de resumen (cantidad · duración total · precio total) bajo una lista de servicios. */
+function resumenServicios(resumenId, seleccion) {
+  var box = document.getElementById(resumenId);
+  if (!box) return;
+  var n = seleccion.length;
+  if (!n) { box.innerHTML = 'Ningún servicio elegido.'; return; }
+  var dur = seleccion.reduce(function(a, s) { return a + s.duracion; }, 0);
+  var precio = seleccion.reduce(function(a, s) { return a + s.precio; }, 0);
+  box.innerHTML = n + (n === 1 ? ' servicio' : ' servicios') + ' · ' +
+                   duracionCorta(dur) + ' · <b>' + pesosExacto(precio) + '</b>';
+}
+
 /** Muestra un error en un recuadro .modal-error y lo trae a la vista. */
 function mostrarError(box, msg) {
   if (typeof box === 'string') box = document.getElementById(box);
@@ -1577,15 +1649,12 @@ function abrirNuevaCita() {
     return;
   }
 
-  var selS = document.getElementById('nc-servicio');
-  selS.innerHTML = '';
-  formCita.servicios.forEach(function(s) {
-    var o = document.createElement('option');
-    o.value = s.nombre;
-    o.textContent = s.nombre + ' · ' + pesosExacto(s.precio);
-    o.setAttribute('data-dur', s.duracion);
-    selS.appendChild(o);
+  ncServiciosSel = [];
+  renderServiciosCheck('nc-servicios', formCita.servicios, ncServiciosSel, function() {
+    resumenServicios('nc-servicios-resumen', ncServiciosSel);
+    if (nuevaModoActual === 'agendar') ncCargarCupos();
   });
+  resumenServicios('nc-servicios-resumen', ncServiciosSel);
 
   var esDueno = (rolActual === 'Dueño' || formCita.rol === 'Dueño');
   var campoB = document.getElementById('nc-campo-barbero');
@@ -1624,18 +1693,13 @@ function nuevaModo(m) {
   if (m === 'agendar') ncCargarCupos();
 }
 
-function ncServicioCambio() {
-  if (nuevaModoActual === 'agendar') ncCargarCupos();
-}
-
 function ncCargarCupos() {
   if (nuevaModoActual !== 'agendar') return;
   var fecha = document.getElementById('nc-fecha').value;
-  var selS = document.getElementById('nc-servicio');
-  var opt = selS.options[selS.selectedIndex];
-  var dur = opt ? (parseInt(opt.getAttribute('data-dur'), 10) || 30) : 30;
+  var dur = ncServiciosSel.reduce(function(a, s) { return a + s.duracion; }, 0);
   var selH = document.getElementById('nc-hora');
   if (!fecha) { selH.innerHTML = '<option value="">Elige el día primero</option>'; return; }
+  if (!ncServiciosSel.length) { selH.innerHTML = '<option value="">Elige un servicio primero</option>'; return; }
   selH.innerHTML = '<option value="">Buscando cupos…</option>';
 
   var barbero = document.getElementById('nc-campo-barbero').hidden
@@ -1671,6 +1735,7 @@ function guardarNuevaCita(forzar) {
   var campoB = document.getElementById('nc-campo-barbero');
   var barbero = campoB.hidden ? (formCita.barberos[0] || '') : document.getElementById('nc-barbero').value;
 
+  if (!ncServiciosSel.length) { mostrarError(errBox, 'Elige al menos un servicio.'); return; }
   if (!document.getElementById('nc-cliente').value.trim()) {
     mostrarError(errBox, 'Escribe el nombre del cliente.'); return;
   }
@@ -1678,7 +1743,7 @@ function guardarNuevaCita(forzar) {
 
   var d = {
     modo: nuevaModoActual,
-    servicio: document.getElementById('nc-servicio').value,
+    servicios: ncServiciosSel.map(function(s) { return s.nombre; }),
     barbero: barbero,
     cliente: document.getElementById('nc-cliente').value.trim(),
     telefono: document.getElementById('nc-telefono').value.trim(),
@@ -1768,20 +1833,28 @@ function pintarEditar(c) {
   });
   selB.disabled = (barberos.length <= 1);
 
-  var selS = document.getElementById('ed-servicio');
-  selS.innerHTML = '';
-  var servs = (formCita && formCita.servicios) ? formCita.servicios : [{ nombre: c.servicio, precio: c.precio }];
-  servs.forEach(function(s) {
-    var o = document.createElement('option');
-    o.value = s.nombre;
-    o.textContent = s.nombre + ' · ' + pesosExacto(s.precio);
-    if (s.nombre === c.servicio) o.selected = true;
-    selS.appendChild(o);
+  // Servicios: se pre-marcan los que coincidan con el nombre combinado actual
+  // (ej. "Corte de Cabello + Barba" -> ["Corte de Cabello","Barba"]).
+  var catalogoEd = (formCita && formCita.servicios && formCita.servicios.length)
+    ? formCita.servicios : [];
+  var partesActuales = String(c.servicio || '').split(' + ').map(function(n) { return n.trim(); });
+  edServiciosSel = catalogoEd.filter(function(s) { return partesActuales.indexOf(s.nombre) >= 0; });
+  renderServiciosCheck('ed-servicios', catalogoEd, edServiciosSel, function() {
+    resumenServicios('ed-servicios-resumen', edServiciosSel);
   });
+  if (edServiciosSel.length) {
+    resumenServicios('ed-servicios-resumen', edServiciosSel);
+  } else {
+    document.getElementById('ed-servicios-resumen').innerHTML =
+      'Servicio actual: <b>' + esc(c.servicio || '—') + '</b>. Si guardas sin marcar ninguno, se conserva igual.';
+  }
 
   var dis = ya;
-  ['ed-fecha','ed-hora','ed-barbero','ed-servicio','ed-cliente','ed-telefono','ed-notas','ed-guardar']
+  ['ed-fecha','ed-hora','ed-barbero','ed-cliente','ed-telefono','ed-notas','ed-guardar']
     .forEach(function(idg) { document.getElementById(idg).disabled = dis; });
+  var edServBox = document.getElementById('ed-servicios');
+  edServBox.style.opacity = dis ? '0.5' : '';
+  edServBox.style.pointerEvents = dis ? 'none' : '';
 }
 
 function cerrarEditar() {
@@ -1799,7 +1872,7 @@ function guardarEdicion() {
     fecha: document.getElementById('ed-fecha').value,
     hora: document.getElementById('ed-hora').value,
     barbero: document.getElementById('ed-barbero').value,
-    servicio: document.getElementById('ed-servicio').value,
+    servicios: edServiciosSel.map(function(s) { return s.nombre; }),
     cliente: document.getElementById('ed-cliente').value.trim(),
     telefono: document.getElementById('ed-telefono').value.trim(),
     notas: document.getElementById('ed-notas').value.trim()
