@@ -638,7 +638,10 @@
 <div id="dashboard-screen">
   <div class="header">
     <div class="marca-header"><?!= include('Logo') ?><b>Dashboard</b></div>
-    <button class="btn-logout" onclick="salir()">Salir</button>
+    <div style="display:flex;gap:8px;">
+      <button class="btn-logout" onclick="abrirCambiarPin()">Cambiar PIN</button>
+      <button class="btn-logout" onclick="salir()">Salir</button>
+    </div>
   </div>
 
   <div class="main">
@@ -750,6 +753,12 @@
     </div>
 
     <div class="campo">
+      <label>Servicios realizados</label>
+      <div class="serv-list" id="mc-servicios"></div>
+      <div class="serv-resumen" id="mc-serv-resumen"></div>
+    </div>
+
+    <div class="campo">
       <label>Método de pago</label>
       <select id="mc-metodo"></select>
     </div>
@@ -832,6 +841,30 @@
 
     <button class="btn-primary" id="nc-guardar" onclick="guardarNuevaCita()">Crear cita</button>
     <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarNueva()">Cancelar</button>
+  </div>
+</div>
+
+<!-- HOJA MODAL: cambiar PIN -->
+<div class="modal-fondo" id="modal-pin" onclick="if(event.target===this)cerrarCambiarPin()">
+  <div class="modal-hoja">
+    <div class="modal-agarre"></div>
+    <h3>Cambiar tu PIN</h3>
+    <div class="modal-sub">Solo tú vas a conocer tu PIN nuevo.</div>
+    <div class="modal-error" id="cp-error"></div>
+    <div class="campo">
+      <label>PIN actual</label>
+      <input id="cp-actual" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="••••">
+    </div>
+    <div class="campo">
+      <label>PIN nuevo (4 dígitos)</label>
+      <input id="cp-nuevo" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="••••">
+    </div>
+    <div class="campo">
+      <label>Repite el PIN nuevo</label>
+      <input id="cp-repetir" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="••••">
+    </div>
+    <button class="btn-primary" id="cp-guardar" onclick="guardarCambiarPin()">Guardar PIN</button>
+    <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarCambiarPin()">Cancelar</button>
   </div>
 </div>
 
@@ -1037,6 +1070,49 @@ function salir() {
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('dashboard-screen').style.display = 'none';
   cargarBarberos();
+}
+
+// ─────────────────────────────────────────────
+//  CAMBIAR PIN
+// ─────────────────────────────────────────────
+function abrirCambiarPin() {
+  limpiarError('cp-error');
+  document.getElementById('cp-actual').value = '';
+  document.getElementById('cp-nuevo').value = '';
+  document.getElementById('cp-repetir').value = '';
+  document.getElementById('modal-pin').classList.add('abierto');
+}
+
+function cerrarCambiarPin() {
+  document.getElementById('modal-pin').classList.remove('abierto');
+}
+
+function guardarCambiarPin() {
+  var btn = document.getElementById('cp-guardar');
+  var errBox = document.getElementById('cp-error');
+  limpiarError(errBox);
+
+  var actual   = document.getElementById('cp-actual').value.replace(/\D/g, '');
+  var nuevo    = document.getElementById('cp-nuevo').value.replace(/\D/g, '');
+  var repetir  = document.getElementById('cp-repetir').value.replace(/\D/g, '');
+
+  if (!actual) { mostrarError(errBox, 'Escribe tu PIN actual.'); return; }
+  if (nuevo.length !== 4) { mostrarError(errBox, 'El PIN nuevo debe tener 4 dígitos.'); return; }
+  if (nuevo !== repetir) { mostrarError(errBox, 'El PIN nuevo no coincide en los dos campos.'); return; }
+
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false; btn.textContent = 'Guardar PIN';
+      if (!r || !r.ok) { mostrarError(errBox, (r && r.error) || 'No se pudo cambiar el PIN.'); return; }
+      cerrarCambiarPin();
+      alert('Listo, tu PIN quedó actualizado. La próxima vez que entres usa el nuevo.');
+    })
+    .withFailureHandler(function(e) {
+      btn.disabled = false; btn.textContent = 'Guardar PIN';
+      mostrarError(errBox, 'No se pudo cambiar: ' + ((e && e.message) || 'revisa tu conexión') + '.');
+    })
+    .cambiarPinDashboard(tokenActual, actual, nuevo);
 }
 
 // ─────────────────────────────────────────────
@@ -1415,12 +1491,22 @@ function limpiarError(box) {
 //  HOJA MODAL — CERRAR SERVICIO
 // ─────────────────────────────────────────────
 var cierreEstado = '';
+var cierreServicios = [];     // servicios elegidos en el modal (objetos del catálogo)
+var cierreServiciosIni = '';  // firma de los que estaban al abrir, para saber si cambió
+
+var SEPARADOR_COMBO = ' + ';
 
 var OPCIONES_DEFAULT = {
   metodos: ['Efectivo', 'Nequi', 'Daviplata', 'Transferencia', 'Tarjeta'],
   estados: ['Atendido', 'No asistió', 'Cancelado'],
-  productos: []
+  productos: [],
+  servicios: []
 };
+
+/** Firma estable de una selección de servicios, para comparar antes/después. */
+function firmaServicios(sel) {
+  return sel.map(function(x) { return x.nombre; }).sort().join('|');
+}
 
 function abrirCierre(i) {
   var s = todosServicios[i];
@@ -1455,6 +1541,23 @@ function abrirCierre(i) {
     };
     segE.appendChild(b);
   });
+
+  // Servicios: se parte el combo guardado y se cruza con el catálogo de Config.
+  // Los nombres que ya no existen en Config no se pueden marcar, pero mientras
+  // el barbero no toque nada no se manda nada al backend y se conservan tal cual.
+  var catServ = opcionesCierre.servicios || [];
+  cierreServicios = String(s.servicio || '').split(SEPARADOR_COMBO)
+    .map(function(n) { return n.trim(); })
+    .filter(Boolean)
+    .map(function(n) {
+      return catServ.filter(function(x) { return x.nombre === n; })[0];
+    })
+    .filter(Boolean);
+  cierreServiciosIni = firmaServicios(cierreServicios);
+  renderServiciosCheck('mc-servicios', catServ, cierreServicios, function() {
+    resumenServicios('mc-serv-resumen', cierreServicios);
+  });
+  resumenServicios('mc-serv-resumen', cierreServicios);
 
   // Método de pago
   var selM = document.getElementById('mc-metodo');
@@ -1540,6 +1643,16 @@ function guardarCierre() {
     desde: desdeActual,
     hasta: hastaActual
   };
+
+  // Solo se mandan si el barbero los cambió: así el backend no reescribe
+  // (ni pierde) un servicio viejo que ya no está en Config.
+  if (firmaServicios(cierreServicios) !== cierreServiciosIni) {
+    if (!cierreServicios.length) {
+      mostrarError(errBox, 'Deja al menos un servicio o vuelve a los originales.');
+      return;
+    }
+    datos.servicios = cierreServicios.map(function(x) { return x.nombre; });
+  }
 
   btn.disabled = true; btn.textContent = 'Guardando…';
   limpiarError(errBox);

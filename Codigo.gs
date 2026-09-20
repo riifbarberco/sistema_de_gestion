@@ -85,21 +85,40 @@ var DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'
 function doGet(e) {
   var p  = e && e.parameter ? e.parameter.p : null;
   var id = e && e.parameter ? e.parameter.c : null;
-  var tpl;
+  var tpl, titulo, ogTitulo, ogDesc;
+
   if (p === 'dashboard') {
     tpl = HtmlService.createTemplateFromFile('Dashboard');
     tpl.reservaId = '';
+    titulo = NEGOCIO + ' · Dashboard';
   } else if (id) {
     tpl = HtmlService.createTemplateFromFile('Cancelar');
     tpl.reservaId = id;
+    titulo = 'Cancelar cita · ' + NEGOCIO;
   } else {
     tpl = HtmlService.createTemplateFromFile('Reservar');
     tpl.reservaId = '';
+    titulo   = 'Reservar en ' + NEGOCIO;
+    // og:* solo en la página pública de reservas: es la que se comparte por
+    // WhatsApp/redes y la que va en "sitio web" de la ficha de Google Maps.
+    // Sin estas etiquetas, esas plataformas muestran el link pelado o nada.
+    ogTitulo = 'Reserva tu cita — ' + NEGOCIO;
+    ogDesc   = 'Elige barbero, servicio y horario en segundos. ' + DIRECCION + '.';
   }
-  return tpl.evaluate()
-    .setTitle('Reservar en ' + NEGOCIO)
+
+  var out = tpl.evaluate()
+    .setTitle(titulo)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+
+  if (ogTitulo) {
+    out.addMetaTag('og:title', ogTitulo)
+       .addMetaTag('og:description', ogDesc);
+    // La tarjeta con imagen para compartir la da la landing aparte
+    // (riifbarberco.github.io/reservas), que redirige a esta página.
+  }
+
+  return out;
 }
 
 function include(nombre) {
@@ -235,6 +254,29 @@ function _combinarServicios_(cfg, nombres) {
   };
 }
 
+/**
+ * Escribe en una fila del Registro las fórmulas de Comisión (M), Pago al
+ * barbero (N) y Neto barbería (O). SIEMPRE en notación A1 con setFormula():
+ * la referencia a una columna entera de OTRA hoja (Config!$A:$A) no se puede
+ * expresar de forma fiable con setFormulaR1C1() — Apps Script no traduce bien
+ * el atajo "columna sin fila" (Config!C2) al pasarlo a R1C1, y la celda queda
+ * con el texto sin interpretar → sale #ERROR!
+ *
+ * Separador ";" y NO ",": esta hoja tiene configuración regional en español,
+ * donde el separador de argumentos de fórmulas es punto y coma. setFormula()
+ * no traduce el separador — si se le pasa una fórmula con comas, Sheets no
+ * la puede interpretar y también queda en #ERROR! ("Error de análisis de
+ * fórmula"), aunque la sintaxis sea válida en inglés.
+ */
+function _aplicarFormulasComision_(hg, fila) {
+  hg.getRange(fila, 13).setFormula(
+    '=IF(L' + fila + '="Atendido";IFERROR(I' + fila + '*INDEX(Config!$B:$B;MATCH(C' + fila + ';Config!$A:$A;0));0);0)');
+  hg.getRange(fila, 14).setFormula(
+    '=IF(L' + fila + '="Atendido";M' + fila + '+IF(J' + fila + '="";0;J' + fila + ');0)');
+  hg.getRange(fila, 15).setFormula(
+    '=IF(L' + fila + '="Atendido";I' + fila + '-M' + fila + ';0)');
+}
+
 function leerHorarios() {
   var h = libro().getSheetByName(HOJA_HORARIOS);
   if (!h) return {};
@@ -309,6 +351,7 @@ function leerBarberos() {
       calendario: val(datos[f], cCal),
       notificar: (estado !== 'no' && estado !== 'inactivo' && estado !== 'falso'),
       pin: val(datos[f], cPin).replace(/\D/g, ''),
+      colPin: cPin < 0 ? -1 : cPin + 1,
       rol: val(datos[f], cRol)
     };
   }
@@ -539,7 +582,7 @@ function _guardarCitaNueva_(r, opciones) {
   var link = linkAvisoBarbero(r);
   if (link) {
     h.getRange(filaNueva, COL_AVISO)
-     .setFormula('=HYPERLINK("' + link + '","Avisar a ' + r.barbero + '")');
+     .setFormula('=HYPERLINK("' + link + '";"Avisar a ' + r.barbero + '")');
   }
 
   enviarCorreos(r, correo);
@@ -678,6 +721,50 @@ function borrarEvento(nombreBarbero, idEvento) {
       var ev = cals[i].getEventById(partes[i]);
       if (ev) ev.deleteEvent();
     } catch (err) { console.error('Borrar evento: ' + err.message); }
+  }
+}
+
+/**
+ * Marca en Google Calendar que un servicio ya se cerró: cambia el color, le
+ * pone un prefijo al título y reemplaza el bloque del link al Form por una
+ * línea con el resultado. Recorre los dos eventos (calendario del barbero y
+ * calendario general) igual que borrarEvento.
+ *
+ * Si Calendar falla no pasa nada: el cierre ya quedó guardado en la hoja.
+ *
+ * @param {string} nombreBarbero
+ * @param {string} idEvento - "idBarbero|idGeneral" tal como lo guarda crearEvento
+ * @param {string} estado   - Atendido / No asistió / Cancelado
+ * @param {string} resumen  - texto corto con servicio, total, método y propina
+ */
+function marcarEventoCerrado_(nombreBarbero, idEvento, estado, resumen) {
+  if (!USAR_CALENDARIO || !idEvento) return;
+
+  var atendido = (String(estado).trim() === 'Atendido');
+  var prefijo = atendido ? '✅ ' : '❌ ';
+  var color = atendido ? CalendarApp.EventColor.GREEN : CalendarApp.EventColor.GRAY;
+
+  var partes = String(idEvento).split('|');
+  var cals = [calendarioDe(nombreBarbero), calendarioGeneral()];
+
+  for (var i = 0; i < partes.length; i++) {
+    if (!partes[i] || !cals[i]) continue;
+    try {
+      var ev = cals[i].getEventById(partes[i]);
+      if (!ev) continue;
+
+      // Quitar el prefijo anterior para que volver a cerrar no los apile.
+      var titulo = String(ev.getTitle()).replace(/^[✅❌]\s*/, '');
+      ev.setTitle(prefijo + titulo);
+      try { ev.setColor(color); } catch (e) {}
+
+      // La descripción llevaba el link al Form de cierre; ya no sirve.
+      var desc = String(ev.getDescription() || '').split('— — —')[0].replace(/\s+$/, '');
+      ev.setDescription(desc + '\n\n— — —\nCerrado: ' + estado +
+                        (resumen ? ' · ' + resumen : ''));
+    } catch (err) {
+      console.error('Marcar evento cerrado: ' + err.message);
+    }
   }
 }
  
@@ -1087,14 +1174,7 @@ function volcarAlRegistro(iso) {
     // Cols 13-15: se calculan al momento de cerrar según Estado
     // El código las deja en fórmula para que se actualicen solas cuando
     // cambies el Estado a "Atendido"
-    var filaNum = fila;
-    // INDEX/MATCH funciona en todos los idiomas (VLOOKUP/BUSCARV varía)
-    hg.getRange(fila, 13).setFormulaR1C1(
-      '=IF(L'+filaNum+'="Atendido",IFERROR(I'+filaNum+'*INDEX(Config!$B:$B,MATCH(C'+filaNum+',Config!$A:$A,0)),0),0)');
-    hg.getRange(fila, 14).setFormula(
-      '=IF(L'+filaNum+'="Atendido",M'+filaNum+'+IF(J'+filaNum+'="",0,J'+filaNum+'),0)');
-    hg.getRange(fila, 15).setFormula(
-      '=IF(L'+filaNum+'="Atendido",I'+filaNum+'-M'+filaNum+',0)');
+    _aplicarFormulasComision_(hg, fila);
     hg.getRange(fila, 16).setValue('Cita ' + f[0]); // Notas
     // Columnas auxiliares
     hg.getRange(fila, 17).setValue(anio);
@@ -1257,7 +1337,32 @@ function menuPersonalizado() {
     .addItem('Revisar configuración', 'revisarConfiguracion')
     .addItem('Diagnóstico de agenda', 'diagnosticoAgenda')
     .addItem('Probar notificaciones', 'probarNotificaciones')
+    .addSeparator()
+    .addItem('Reparar fórmulas de comisión (M/N/O)', 'repararFormulasComision')
     .addToUi();
+}
+
+/**
+ * Vuelve a escribir las fórmulas de Comisión/Pago al barbero/Neto (M, N, O)
+ * en TODAS las filas con datos del Registro. Es seguro correrla las veces que
+ * quieras: no toca ninguna otra columna, solo deja esas tres fórmulas bien.
+ * Se necesitó una vez porque una versión vieja del código las dejaba con
+ * #ERROR! en vez de calcular.
+ */
+function repararFormulasComision() {
+  var hg = libro().getSheetByName('Registro');
+  var ui = SpreadsheetApp.getUi();
+  if (!hg || hg.getLastRow() < 2) { ui.alert('El Registro está vacío, no hay nada que reparar.'); return; }
+
+  var ultima = hg.getLastRow();
+  var colA = hg.getRange(2, 1, ultima - 1, 1).getValues();
+  var n = 0;
+  for (var i = 0; i < colA.length; i++) {
+    if (!colA[i][0] || String(colA[i][0]).trim() === '') continue;   // fila vacía, se salta
+    _aplicarFormulasComision_(hg, i + 2);
+    n++;
+  }
+  ui.alert('Listo: se repararon las columnas M, N y O en ' + n + ' fila(s) del Registro.');
 }
  
 function onOpen() { menuPersonalizado(); }
@@ -1361,13 +1466,8 @@ function volcarAutomatico_() {
     hg.getRange(fila, 10).setValue(0);
     hg.getRange(fila, 12).setValue(cancelada ? 'Cancelado' : 'Pendiente');
  
-    hg.getRange(fila, 13).setFormulaR1C1(
-      '=IF(RC12="Atendido",IFERROR(RC9*INDEX(Config!C2,MATCH(RC3,Config!C1,0)),0),0)');
-    hg.getRange(fila, 14).setFormulaR1C1(
-      '=IF(RC12="Atendido",RC13+IF(RC10="",0,RC10),0)');
-    hg.getRange(fila, 15).setFormulaR1C1(
-      '=IF(RC12="Atendido",RC9-RC13,0)');
- 
+    _aplicarFormulasComision_(hg, fila);
+
     hg.getRange(fila, 16).setValue('Cita ' + id);   // ← esta es la llave
     hg.getRange(fila, 17).setValue(fechaReal.getFullYear());
     hg.getRange(fila, 18).setValue(fechaReal.getMonth() + 1);
@@ -1736,7 +1836,7 @@ function configurarInventario() {
   var ult = Math.max(hi.getLastRow(), 4);
   for (var f = 2; f <= ult; f++) {
     if (!hi.getRange(f, 1).getValue()) continue;
-    hi.getRange(f, 6).setFormulaR1C1('=RC2+RC3-RC4-RC5');
+    hi.getRange(f, 6).setFormula('=B' + f + '+C' + f + '-D' + f + '-E' + f);
     hi.getRange(f, 7).setNumberFormat('$#,##0');
     hi.getRange(f, 8).setNumberFormat('$#,##0');
   }

@@ -344,6 +344,46 @@ function getPerfilDashboard(token) {
 }
 
 /**
+ * Cambia el PIN del usuario que inició sesión. Pide el PIN actual (no alcanza
+ * con el token) para que, si alguien encuentra el celular ya logueado, no
+ * pueda cambiarle el PIN a otra persona sin saber el que tiene hoy.
+ *
+ * @param {string} token
+ * @param {string} pinActual
+ * @param {string} pinNuevo   - 4 dígitos
+ * @returns {Object} { ok } o { ok:false, error }
+ */
+function cambiarPinDashboard(token, pinActual, pinNuevo) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+
+  pinActual = String(pinActual || '').replace(/\D/g, '');
+  pinNuevo  = String(pinNuevo || '').replace(/\D/g, '');
+  if (pinNuevo.length !== 4) return { ok: false, error: 'El PIN nuevo debe tener 4 dígitos.' };
+  if (pinNuevo === pinActual) return { ok: false, error: 'Elige un PIN distinto al que ya tienes.' };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); }
+  catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
+
+  try {
+    var b = leerBarberos()[s.nombre];
+    if (!b) return { ok: false, error: 'No encontramos tu usuario en la hoja Barberos.' };
+    if (b.colPin < 1) return { ok: false, error: 'La hoja Barberos no tiene columna PIN. Avisa al administrador.' };
+    if (!b.pin || b.pin !== pinActual) return { ok: false, error: 'El PIN actual no es correcto.' };
+
+    var h = libro().getSheetByName(HOJA_BARBEROS);
+    h.getRange(b.fila, b.colPin).setNumberFormat('@').setValue(pinNuevo);
+    return { ok: true };
+
+  } catch (err) {
+    return { ok: false, error: 'No se pudo cambiar el PIN: ' + err.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
  * Nombres que aparecen en el selector de login del Dashboard:
  * los barberos de Config + cualquier fila de la hoja Barberos que ya tenga PIN
  * (así aparece también la cuenta de administrador, aunque no corte pelo).
@@ -390,10 +430,14 @@ function getOpcionesCierre() {
   } catch (e) {}
   try { productos = _productosCatalogo_(); } catch (e) { productos = []; }
 
+  // Catálogo de servicios: el modal de cierre deja ajustar lo que de verdad se hizo.
+  var servicios = [];
+  try { servicios = leerConfig().servicios || []; } catch (e) { servicios = []; }
+
   if (!metodos.length) metodos = ['Efectivo', 'Nequi', 'Daviplata', 'Transferencia', 'Tarjeta'];
   if (!estados.length) estados = ['Atendido', 'No asistió', 'Cancelado'];
 
-  return { metodos: metodos, estados: estados, productos: productos };
+  return { metodos: metodos, estados: estados, productos: productos, servicios: servicios };
 }
 
 /** Lista de productos desde la hoja Inventario: [{nombre, precio}]. */
@@ -418,13 +462,32 @@ function _productosCatalogo_() {
 }
 
 /**
+ * Busca una cita en la hoja Reservas por su código.
+ *
+ * @param {Sheet} h - hoja Reservas
+ * @param {string} id
+ * @returns {Object|null} { fila, f } donde f son las 16 columnas de esa fila
+ */
+function _filaReserva_(h, id) {
+  if (!h || h.getLastRow() < 2) return null;
+  id = String(id || '').trim();
+  var datos = h.getRange(2, 1, h.getLastRow() - 1, 16).getValues();
+  for (var i = 0; i < datos.length; i++) {
+    if (String(datos[i][0]).trim() === id) return { fila: i + 2, f: datos[i] };
+  }
+  return null;
+}
+
+/**
  * Cierra un servicio desde el dashboard: escribe Estado, Método de pago,
  * Propina y productos en la fila del Registro, y ajusta el inventario.
  *
  * @param {string} token  - token de sesión (iniciarSesion)
  * @param {string} id     - código de la cita (ej. R260901-AB12C)
- * @param {Object} datos  - { estado, metodo, propina, productos:{aguaV,aguaR,
- *                            cervV,cervR,cocaV,cocaR}, desde, hasta }
+ * @param {Object} datos  - { estado, metodo, propina, descuento, servicios:[],
+ *                            productos:{Nombre:{v,r}}, desde, hasta }
+ *                            `servicios` solo viene si el barbero corrigió lo
+ *                            que realmente se hizo; si no, no se toca nada.
  * @returns {Object} { ok, dashboard? } o { ok:false, error }
  */
 function cerrarServicioDashboard(token, id, datos) {
@@ -466,12 +529,37 @@ function cerrarServicioDashboard(token, id, datos) {
     if (metodo) hg.getRange(fila, 11).setValue(metodo);
 
     var propina = Number(datos.propina);
-    hg.getRange(fila, 10).setValue(isNaN(propina) || propina < 0 ? 0 : propina);
+    if (isNaN(propina) || propina < 0) propina = 0;
+    hg.getRange(fila, 10).setValue(propina);
+
+    // --- Servicios realmente hechos ---
+    // Si el barbero los corrigió en el modal, se reescriben aquí ANTES del
+    // descuento, porque cambian el valor sobre el que se calcula el Total.
+    var hres = libro().getSheetByName(HOJA_RESERVAS);
+    var res = _filaReserva_(hres, id);
+    var valorServ = Number(hg.getRange(fila, 7).getValue()) || 0;
+
+    if (datos.servicios && datos.servicios.length) {
+      var combo = _combinarServicios_(leerConfig(), datos.servicios);
+      if (!combo.ok) return { ok: false, error: combo.error };
+
+      hg.getRange(fila, 6).setValue(combo.nombre);
+      hg.getRange(fila, 7).setValue(combo.precio);
+      hg.getRange(fila, 21).setValue(combo.duracion);
+      valorServ = combo.precio;
+
+      // Espejo en Reservas para que la cita no quede inconsistente. NO se tocan
+      // fecha ni hora: el servicio ya ocurrió, mover el evento solo confunde.
+      if (res) {
+        hres.getRange(res.fila, 7).setValue(combo.nombre);
+        hres.getRange(res.fila, 8).setValue(combo.duracion);
+        hres.getRange(res.fila, 9).setValue(combo.precio);
+      }
+    }
 
     // Descuento (pesos) — recalcula el Total cobrado (col 9 = valor − descuento)
     var desc = Number(datos.descuento);
     if (isNaN(desc) || desc < 0) desc = 0;
-    var valorServ = Number(hg.getRange(fila, 7).getValue()) || 0;
     hg.getRange(fila, 8).setValue(desc);
     if (valorServ > 0) hg.getRange(fila, 9).setValue(Math.max(valorServ - desc, 0));
 
@@ -490,13 +578,22 @@ function cerrarServicioDashboard(token, id, datos) {
     var hi = libro().getSheetByName('Inventario');
     if (hi) actualizarInventario_(hi, _deltaProductos_(nuevoProd, viejoProd));
 
-    // Asegurar las fórmulas de comisión / pago / neto (idénticas a volcarAutomatico)
-    hg.getRange(fila, 13).setFormulaR1C1(
-      '=IF(RC12="Atendido",IFERROR(RC9*INDEX(Config!C2,MATCH(RC3,Config!C1,0)),0),0)');
-    hg.getRange(fila, 14).setFormulaR1C1(
-      '=IF(RC12="Atendido",RC13+IF(RC10="",0,RC10),0)');
-    hg.getRange(fila, 15).setFormulaR1C1(
-      '=IF(RC12="Atendido",RC9-RC13,0)');
+    // Asegurar las fórmulas de comisión / pago / neto (misma que volcarAutomatico_,
+    // en notación A1 — con R1C1 el "Config!C2" de columna entera no se traduce
+    // bien y deja la celda en #ERROR!, ver _aplicarFormulasComision_ en Codigo.gs)
+    _aplicarFormulasComision_(hg, fila);
+
+    // Dejar marcado en Google Calendar que esta cita ya se cerró.
+    if (estado && res) {
+      var resumen = String(hg.getRange(fila, 6).getValue()).trim() +
+        ' · ' + pesos(Math.max(valorServ - desc, 0)) +
+        (metodo ? ' · ' + metodo : '') +
+        (propina > 0 ? ' · propina ' + pesos(propina) : '');
+      try {
+        marcarEventoCerrado_(barberoFila, String(res.f[COL_EVENTO - 1] || '').trim(),
+                             estado, resumen);
+      } catch (e) {}
+    }
 
     var salida = { ok: true };
     if (datos.desde && datos.hasta) {
@@ -829,7 +926,7 @@ function modificarCitaDashboard(token, id, cambios) {
 
       var link = linkAvisoBarbero(r);
       h.getRange(fila, COL_AVISO).setFormula(
-        link ? '=HYPERLINK("' + link + '","Avisar a ' + r.barbero + '")' : '');
+        link ? '=HYPERLINK("' + link + '";"Avisar a ' + r.barbero + '")' : '');
 
       try { notificarBarbero(r, 'modificada'); } catch (e) {}
 
@@ -971,7 +1068,7 @@ function crearProductoDashboard(token, datos) {
 
     var fila = hi.getLastRow() + 1;
     hi.getRange(fila, 1, 1, 8).setValues([[nombre, stockIni, 0, 0, 0, '', 0, precio]]);
-    hi.getRange(fila, 6).setFormulaR1C1('=RC2+RC3-RC4-RC5');
+    hi.getRange(fila, 6).setFormula('=B' + fila + '+C' + fila + '-D' + fila + '-E' + fila);
     hi.getRange(fila, 7).setNumberFormat('$#,##0');
     hi.getRange(fila, 8).setNumberFormat('$#,##0');
     SpreadsheetApp.flush();
