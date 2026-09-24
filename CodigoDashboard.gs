@@ -56,15 +56,19 @@ function getDatosDashboard(barbero, desde, hasta, verTodo) {
     return _dashboardVacio();
   }
 
-  // Leer todo el Registro. Se piden hasta 27 columnas (productos 22-27) pero se
-  // respeta el ancho real de la hoja para no salirse de la cuadrícula.
-  var anchoLeer = Math.max(16, Math.min(27, hg.getLastColumn()));
+  // Leer todo el Registro. Se piden hasta 28 columnas (productos 22-27 y su
+  // valor en la 28) pero se respeta el ancho real de la hoja para no salirse
+  // de la cuadrícula.
+  var anchoLeer = Math.max(16, Math.min(COL_VALOR_PROD, hg.getLastColumn()));
   var datos = hg.getRange(2, 1, hg.getLastRow() - 1, anchoLeer).getValues();
 
   var servicios     = [];
   var totalCobrado  = 0;
   var totalComision = 0;
   var totalPropinas = 0;
+  var totalBarberia = 0;    // Neto barbería: servicio − comisión + productos
+  var totalProductos = 0;   // $ de productos vendidos
+  var precios = null;       // precios del Inventario, solo si alguna fila los necesita
   var contPorDia    = {};   // { 'YYYY-MM-DD': { count, total } }
   var contServicios = {};   // { 'Nombre servicio': { count, total } }
 
@@ -74,6 +78,7 @@ function getDatosDashboard(barbero, desde, hasta, verTodo) {
     //  6:Valor  7:Desc  8:Total    9:Propina  10:Método   11:Estado
     // 12:Comisión  13:PagoBarbero  14:Neto  15:Notas
     // 16:Año  17:Mes  18:DiaSem  19:HoraBloque  20:Duración
+    // 21:Productos (texto)  27:Valor productos
 
     var fBarbero = String(f[2] || '').trim();
     if (!verTodo && fBarbero !== barbero) return;
@@ -81,23 +86,8 @@ function getDatosDashboard(barbero, desde, hasta, verTodo) {
     var estado = String(f[11] || '').trim();
     if (estado === 'Cancelado') return; // ignorar canceladas
 
-    // Obtener fecha ISO de la columna Fecha (puede ser Date o string)
-    var iso = '';
-    if (f[0] instanceof Date) {
-      iso = aISO(f[0]);
-    } else {
-      var s = String(f[0] || '').trim();
-      // acepta DD/MM/YYYY y YYYY-MM-DD
-      var mDMY = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-      var mYMD = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-      if (mDMY) {
-        iso = mDMY[3] + '-' + ('0'+mDMY[2]).slice(-2) + '-' + ('0'+mDMY[1]).slice(-2);
-      } else if (mYMD) {
-        iso = s.slice(0, 10);
-      } else {
-        return; // fecha inválida, saltar fila
-      }
-    }
+    var iso = _isoCeldaRegistro_(f[0]);
+    if (!iso) return; // fecha inválida, saltar fila
 
     if (iso < desde || iso > hasta) return;
 
@@ -106,6 +96,7 @@ function getDatosDashboard(barbero, desde, hasta, verTodo) {
     var propina     = Number(f[9])  || 0;
     var comision    = Number(f[12]) || 0;
     var pagoBarbero = Number(f[13]) || 0;
+    var valorProd   = Number(f[27]) || 0;
     var nombreSrv   = String(f[5] || '').trim();
     var hora        = String(f[1] || '').trim();
     var cliente     = String(f[3] || '').trim();
@@ -118,9 +109,27 @@ function getDatosDashboard(barbero, desde, hasta, verTodo) {
     // Productos: { 'Agua': {v,r}, ... } — acepta formato nuevo (texto) y viejo.
     var productos = _leerProductosRegistro_([f[21], f[22], f[23], f[24], f[25], f[26]]);
 
-    totalCobrado  += total;
-    totalComision += pagoBarbero;   // "pago barbero" = comisión + propina
-    totalPropinas += propina;
+    // Filas cerradas antes de existir la col "Valor productos": se calcula con
+    // el precio actual para que las bebidas igual cuenten.
+    if (!valorProd && Object.keys(productos).length && (f[27] === '' || f[27] == null)) {
+      if (!precios) precios = _preciosProductos_();
+      valorProd = _valorProductos_(productos, precios);
+    }
+
+    // Pago barbería = servicio − comisión + bebidas vendidas (100% barbería).
+    // Se calcula aquí y no se lee de la col O, para que no dependa de que la
+    // fórmula de la hoja esté al día.
+    var atendido = (estado === 'Atendido');
+    var neto = atendido ? total - comision + valorProd : 0;
+    if (!atendido) valorProd = 0;
+
+    // Total cobrado = servicio (con descuento) + productos vendidos. Así
+    // Total cobrado + Propinas = Pago barberos + Pago barbería.
+    totalCobrado   += total + valorProd;
+    totalComision  += pagoBarbero;   // "pago barbero" = comisión + propina
+    totalPropinas  += propina;
+    totalBarberia  += neto;
+    totalProductos += valorProd;
 
     // Acumular por día
     if (!contPorDia[iso]) contPorDia[iso] = { count: 0, total: 0 };
@@ -139,7 +148,7 @@ function getDatosDashboard(barbero, desde, hasta, verTodo) {
       id: citaId,
       fecha: iso, hora: hora, barbero: fBarbero,
       servicio: nombreSrv, cliente: cliente,
-      total: total, pagoBarbero: pagoBarbero,
+      total: total, pagoBarbero: pagoBarbero, neto: neto, valorProductos: valorProd,
       propina: propina, metodo: metodo, descuento: descuento,
       productos: productos,
       estado: estado || 'Pendiente'
@@ -164,12 +173,141 @@ function getDatosDashboard(barbero, desde, hasta, verTodo) {
   return {
     totalServicios: servicios.length,
     totalCobrado:   Math.round(totalCobrado),
-    totalComision:  Math.round(totalComision),
+    // Sin redondear al peso entero: con comisiones al 50% (u otro % impar)
+    // una sola cita ya deja décimas (ej. 12.5), y Math.round() las subía a 13.
+    // Se limpia a 2 decimales solo para evitar residuos de coma flotante
+    // (ej. 14.800000000000001), sin perder la parte exacta.
+    totalComision:  Math.round(totalComision * 100) / 100,
     totalPropinas:  Math.round(totalPropinas),
+    totalBarberia:  Math.round(totalBarberia * 100) / 100,
+    totalProductos: Math.round(totalProductos),
     porPeriodo:     porPeriodo,
     topServicios:   topServicios,
     servicios:      servicios
   };
+}
+
+/** Fecha ISO de la columna Fecha del Registro (Date, DD/MM/YYYY o YYYY-MM-DD); '' si no se entiende. */
+function _isoCeldaRegistro_(v) {
+  if (v instanceof Date) return aISO(v);
+  var s = String(v || '').trim();
+  var mDMY = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  var mYMD = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (mDMY) return mDMY[3] + '-' + ('0' + mDMY[2]).slice(-2) + '-' + ('0' + mDMY[1]).slice(-2);
+  if (mYMD) return mYMD[1] + '-' + ('0' + mYMD[2]).slice(-2) + '-' + ('0' + mYMD[3]).slice(-2);
+  return '';
+}
+
+// ================================================================
+//  ANÁLISIS — gráficas para tomar decisiones
+//  Dueño: toda la barbería. Barbero: solo sus propios servicios.
+// ================================================================
+
+/**
+ * Agregados del Registro entre `desde` y `hasta` (yyyy-mm-dd), más los
+ * totales del período anterior del mismo largo para comparar.
+ * Ingresos = servicio cobrado (con descuento) + bebidas vendidas, solo "Atendido".
+ *
+ * @returns { ok, desde, hasta, actual:{...}, anterior:{...}, porFecha, heat,
+ *            porHora, porDow, dowOcurrencias, porBarbero, porServicio, bebidas }
+ */
+function getAnalisisDashboard(token, desde, hasta) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  var soloBarbero = (s.rol === 'Dueño') ? '' : s.nombre;
+  desde = String(desde || '').slice(0, 10);
+  hasta = String(hasta || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desde) || !/^\d{4}-\d{2}-\d{2}$/.test(hasta) || desde > hasta) {
+    return { ok: false, error: 'Rango de fechas no válido.' };
+  }
+
+  // Período anterior del mismo largo, justo antes de `desde`
+  var d0 = new Date(desde + 'T12:00:00'), d1 = new Date(hasta + 'T12:00:00');
+  var dias = Math.round((d1 - d0) / 86400000) + 1;
+  var prevHasta = Utilities.formatDate(new Date(d0.getTime() - 86400000), TZ, 'yyyy-MM-dd');
+  var prevDesde = Utilities.formatDate(new Date(d0.getTime() - dias * 86400000), TZ, 'yyyy-MM-dd');
+
+  function totalesVacios() {
+    return { atendidos: 0, noShow: 0, cancelados: 0, ingresos: 0, ingresoServicios: 0,
+             ingresoBebidas: 0, barberia: 0, propinas: 0, pagoBarbero: 0 };
+  }
+  var out = {
+    ok: true, desde: desde, hasta: hasta, prevDesde: prevDesde, prevHasta: prevHasta,
+    barbero: soloBarbero,   // '' = toda la barbería
+    actual: totalesVacios(), anterior: totalesVacios(),
+    porFecha: {},          // { iso: { n, ingresos } }
+    heat: [],              // heat[dow 0=Lun][hora 0-23] = servicios atendidos
+    porBarbero: {},        // { nombre: { n, ingresos } }
+    porServicio: {},       // { nombre: n } (los combos se cuentan por separado)
+    bebidas: {},           // { nombre: { v, r } }
+    dowOcurrencias: [0, 0, 0, 0, 0, 0, 0]   // cuántos lunes, martes… tiene el rango
+  };
+  for (var k = 0; k < 7; k++) { var fila = []; for (var h = 0; h < 24; h++) fila.push(0); out.heat.push(fila); }
+  for (var t = 0; t < dias; t++) {
+    out.dowOcurrencias[(new Date(d0.getTime() + t * 86400000).getDay() + 6) % 7]++;
+  }
+
+  var hg = libro().getSheetByName('Registro');
+  if (!hg || hg.getLastRow() < 2) return out;
+  var ancho = Math.max(16, Math.min(COL_VALOR_PROD, hg.getLastColumn()));
+  var datos = hg.getRange(2, 1, hg.getLastRow() - 1, ancho).getValues();
+  var precios = null;
+
+  datos.forEach(function (f) {
+    var iso = _isoCeldaRegistro_(f[0]);
+    if (!iso || iso < prevDesde || iso > hasta) return;
+    if (soloBarbero && String(f[2] || '').trim() !== soloBarbero) return;
+    var esActual = iso >= desde;
+    var tot = esActual ? out.actual : out.anterior;
+
+    var estado = String(f[11] || '').trim();
+    if (estado === 'Cancelado') { tot.cancelados++; return; }
+    if (estado === 'No asistió') { tot.noShow++; return; }
+    if (estado !== 'Atendido') return;   // pendientes no cuentan todavía
+
+    var total = Number(f[8]) || 0;
+    var comision = Number(f[12]) || 0;
+    var productos = _leerProductosRegistro_([f[21], f[22], f[23], f[24], f[25], f[26]]);
+    var valorProd = Number(f[27]) || 0;
+    if (!valorProd && Object.keys(productos).length && (f[27] === '' || f[27] == null)) {
+      if (!precios) precios = _preciosProductos_();
+      valorProd = _valorProductos_(productos, precios);
+    }
+    var ingreso = total + valorProd;
+
+    tot.atendidos++;
+    tot.ingresos += ingreso;
+    tot.ingresoServicios += total;
+    tot.ingresoBebidas += valorProd;
+    tot.barberia += total - comision + valorProd;
+    tot.propinas += Number(f[9]) || 0;
+    tot.pagoBarbero += Number(f[13]) || 0;
+    if (!esActual) return;
+
+    var pf = out.porFecha[iso] || (out.porFecha[iso] = { n: 0, ingresos: 0 });
+    pf.n++; pf.ingresos += ingreso;
+
+    var dow = (new Date(iso + 'T12:00:00').getDay() + 6) % 7;
+    var hhmm = aHHMM(f[1]);
+    var hora = parseInt(String(hhmm).split(':')[0], 10);
+    if (!isNaN(hora) && hora >= 0 && hora < 24) out.heat[dow][hora]++;
+
+    var barbero = String(f[2] || '').trim() || '—';
+    var pb = out.porBarbero[barbero] || (out.porBarbero[barbero] = { n: 0, ingresos: 0 });
+    pb.n++; pb.ingresos += ingreso;
+
+    String(f[5] || '').split(SEPARADOR_COMBO).forEach(function (n) {
+      n = n.trim();
+      if (n) out.porServicio[n] = (out.porServicio[n] || 0) + 1;
+    });
+
+    Object.keys(productos).forEach(function (n) {
+      var b = out.bebidas[n] || (out.bebidas[n] = { v: 0, r: 0 });
+      b.v += Number(productos[n].v) || 0;
+      b.r += Number(productos[n].r) || 0;
+    });
+  });
+  return out;
 }
 
 /** Resultado vacío cuando no hay datos */
@@ -177,6 +315,7 @@ function _dashboardVacio() {
   return {
     totalServicios: 0, totalCobrado: 0,
     totalComision: 0,  totalPropinas: 0,
+    totalBarberia: 0,  totalProductos: 0,
     porPeriodo: [], topServicios: [], servicios: []
   };
 }
@@ -462,6 +601,24 @@ function _productosCatalogo_() {
 }
 
 /**
+ * Mapa { idCita: estado } leyendo el Registro en una sola pasada.
+ * Igual que idsEnRegistro_() (Codigo.gs) pero trae también la columna 12
+ * "Estado", para no tener que releer fila por fila desde el calendario.
+ */
+function _estadosRegistroPorId_() {
+  var hg = libro().getSheetByName('Registro');
+  var mapa = {};
+  if (!hg || hg.getLastRow() < 2) return mapa;
+  var datos = hg.getRange(2, 1, hg.getLastRow() - 1, 16).getValues(); // hasta col 16 = Notas
+  datos.forEach(function (f) {
+    var nota = String(f[15] || '').trim();
+    if (nota.indexOf('Cita ') !== 0) return;
+    mapa[nota.substring(5).trim()] = String(f[11] || '').trim(); // col 12 = Estado
+  });
+  return mapa;
+}
+
+/**
  * Busca una cita en la hoja Reservas por su código.
  *
  * @param {Sheet} h - hoja Reservas
@@ -512,7 +669,15 @@ function cerrarServicioDashboard(token, id, datos) {
 
     var fila = idsEnRegistro_()[id];
     if (!fila) {
-      return { ok: false, error: 'Esa cita todavía no está en el Registro. Toca "Actualizar" y vuelve a intentar.' };
+      // Todavía no bajó al Registro (cita recién creada, o futura que se quiere
+      // cerrar de una vez desde el calendario). volcarAutomatico_() no toma su
+      // propio candado -ya estamos dentro del LockService de esta función-,
+      // así que se puede llamar aquí sin bloquearse a sí misma.
+      try { volcarAutomatico_(); } catch (e) {}
+      fila = idsEnRegistro_()[id];
+      if (!fila) {
+        return { ok: false, error: 'No encontramos esa cita en el Registro.' };
+      }
     }
 
     var barberoFila = String(hg.getRange(fila, 3).getValue()).trim();
@@ -557,6 +722,27 @@ function cerrarServicioDashboard(token, id, datos) {
       }
     }
 
+    // --- Liberar el tiempo sobrante si el servicio terminó antes de lo planeado ---
+    // Solo aplica a citas de HOY cerradas como "Atendido". Si el barbero cierra
+    // tarde (después de la hora de fin planeada), no se toca nada: la cita nunca
+    // se alarga, solo se puede acortar.
+    if (estado === 'Atendido' && res) {
+      var duracionFinal = (datos.servicios && datos.servicios.length)
+        ? combo.duracion
+        : (Number(res.f[7]) || 0);           // col8 Reservas = Duración
+
+      if (aISO(res.f[2]) === hoyISO()) {      // col3 Reservas = Fecha
+        var iniMin = aMin(aHHMM(res.f[3]));   // col4 Reservas = Hora inicio
+        if (iniMin !== null && duracionFinal > 0) {
+          var finPlaneadoMin = iniMin + duracionFinal;
+          var ahoraMinActual = ahoraMin();
+          if (ahoraMinActual > iniMin && ahoraMinActual < finPlaneadoMin) {
+            hres.getRange(res.fila, 5).setValue(aTexto(ahoraMinActual)); // col5 = Hora fin
+          }
+        }
+      }
+    }
+
     // Descuento (pesos) — recalcula el Total cobrado (col 9 = valor − descuento)
     var desc = Number(datos.descuento);
     if (isNaN(desc) || desc < 0) desc = 0;
@@ -574,6 +760,8 @@ function cerrarServicioDashboard(token, id, datos) {
 
     hg.getRange(fila, 22).setValue(_formatearProductos_(nuevoProd));
     if (hg.getMaxColumns() >= 27) hg.getRange(fila, 23, 1, 5).clearContent();
+    _asegurarColValorProductos_(hg);
+    hg.getRange(fila, COL_VALOR_PROD).setValue(_valorProductos_(nuevoProd));
 
     var hi = libro().getSheetByName('Inventario');
     if (hi) actualizarInventario_(hi, _deltaProductos_(nuevoProd, viejoProd));
@@ -657,6 +845,45 @@ function getFormularioCita(token) {
   };
 }
 
+/**
+ * Directorio de clientes armado con el historial de Reservas (web y dashboard),
+ * para autocompletar la "Nueva cita". Se agrupa por teléfono (últimos 10
+ * dígitos); de cada cliente queda el nombre, correo y servicio más recientes.
+ * @returns { ok, clientes:[{nombre, telefono, email, visitas, ultima, servicio, barbero}] }
+ */
+function getClientesDashboard(token) {
+  try { _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  var h = libro().getSheetByName(HOJA_RESERVAS);
+  if (!h || h.getLastRow() < 2) return { ok: true, clientes: [] };
+
+  // 0:ID 2:Fecha 5:Barbero 6:Servicio 9:Cliente 10:Teléfono 11:Correo 12:Estado
+  var datos = h.getRange(2, 1, h.getLastRow() - 1, 13).getValues();
+  var mapa = {};
+  datos.forEach(function (f) {
+    var nombre = String(f[9] || '').trim();
+    var tel = String(f[10] || '').replace(/\D/g, '');
+    if (!nombre || nombre === CLIENTE_SIN_NOMBRE || tel.length < 7) return;
+    var clave = tel.slice(-10);
+    var iso = aISO(f[2]) || '';
+    var c = mapa[clave];
+    if (!c) c = mapa[clave] = { nombre: '', telefono: tel, email: '', visitas: 0, ultima: '' };
+    if (String(f[12] || '').trim() !== 'Cancelada') c.visitas++;
+    var email = String(f[11] || '').trim();
+    if (email && (!c.email || iso >= c.ultima)) c.email = email;
+    if (iso >= c.ultima) {
+      c.ultima = iso; c.nombre = nombre; c.telefono = tel;
+      c.servicio = String(f[6] || '').trim(); c.barbero = String(f[5] || '').trim();
+    }
+  });
+
+  var clientes = Object.keys(mapa).map(function (k) { return mapa[k]; });
+  clientes.sort(function (a, b) { return a.ultima < b.ultima ? 1 : -1; });
+  return { ok: true, clientes: clientes };
+}
+
+/** Nombre que queda en la hoja cuando la cita se crea sin cliente (uso interno). */
+var CLIENTE_SIN_NOMBRE = 'Sin nombre';
+
 /** "Ahora" redondeado hacia abajo al múltiplo de PASO_MIN. */
 function _horaAhoraRedondeada_() {
   return aTexto(Math.floor(ahoraMin() / PASO_MIN) * PASO_MIN);
@@ -664,9 +891,10 @@ function _horaAhoraRedondeada_() {
 
 /**
  * ¿La franja barbero+fecha+hora está dentro del horario y sin choque?
+ * `excluirId` (opcional): cita que no cuenta como choque (la que se mueve).
  * @returns { ok } o { ok:false, error }
  */
-function _validarFranja_(barbero, iso, hhmm, duracion) {
+function _validarFranja_(barbero, iso, hhmm, duracion, excluirId) {
   var ini = aMin(hhmm);
   if (ini === null) return { ok: false, error: 'Hora no válida.' };
   var fin = ini + (Number(duracion) || 0);
@@ -678,7 +906,7 @@ function _validarFranja_(barbero, iso, hhmm, duracion) {
   if (abre !== null && cierra !== null && (ini < abre || fin > cierra)) {
     return { ok: false, error: 'Fuera del horario de ' + barbero + ' (' + h.abre + '–' + h.cierra + ').' };
   }
-  var choca = ocupacion(barbero, iso).some(function (b) { return ini < b.fin && fin > b.ini; });
+  var choca = ocupacion(barbero, iso, excluirId).some(function (b) { return ini < b.fin && fin > b.ini; });
   if (choca) return { ok: false, error: barbero + ' ya tiene una cita a esa hora.' };
   return { ok: true };
 }
@@ -724,6 +952,149 @@ function getAgendaDashboard(token, dias) {
 }
 
 /**
+ * Datos para la vista de calendario (día/semana/mes) del dashboard.
+ * Trae TODAS las citas del rango (incluidas pasadas y canceladas, para poder
+ * pintarlas), cruzadas con el estado real del Registro, más horarios,
+ * bloqueos y — solo si el rango es corto — eventos manuales de Calendar.
+ * Cada hoja se lee una sola vez, sin importar cuántos barberos haya.
+ *
+ * @param {string} token
+ * @param {string} desde - yyyy-mm-dd
+ * @param {string} hasta - yyyy-mm-dd
+ * @returns {Object} { ok, hoy, barberos, horarios, bloqueos, eventosManuales,
+ *                      calendarOmitido, citas[] } o { ok:false, error }
+ */
+function getCalendarioDashboard(token, desde, hasta) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+
+  desde = String(desde || '').slice(0, 10);
+  hasta = String(hasta || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desde) || !/^\d{4}-\d{2}-\d{2}$/.test(hasta) || hasta < desde) {
+    return { ok: false, error: 'Rango de fechas no válido.' };
+  }
+
+  // Antes de pintar: que Reservas cuadre con el Registro (lo que sale en el
+  // Resumen). Si otro proceso tiene el candado, se salta: la rutina de 15 min
+  // lo hará igual.
+  try {
+    var lockSync = LockService.getScriptLock();
+    if (lockSync.tryLock(5000)) {
+      try { sincronizarReservasConRegistro_(); } finally { lockSync.releaseLock(); }
+    }
+  } catch (e) { console.error('sync calendario: ' + e); }
+
+  var esDueno = (s.rol === 'Dueño');
+  var barberos = esDueno ? _barberosReales_() : [s.nombre];
+  var horariosTodos = leerHorarios();
+
+  // --- Citas (una sola lectura de Reservas para todo el rango) ---
+  var estados = _estadosRegistroPorId_();
+  var citas = [];
+  var hr = libro().getSheetByName(HOJA_RESERVAS);
+  if (hr && hr.getLastRow() > 1) {
+    hr.getRange(2, 1, hr.getLastRow() - 1, 16).getValues().forEach(function (f) {
+      var id = String(f[0]).trim();
+      if (!id) return;
+      var iso = aISO(f[2]);
+      if (!iso || iso < desde || iso > hasta) return;
+      var barbero = String(f[5]).trim();
+      if (!barbero) return;
+      if (barberos.indexOf(barbero) < 0) {
+        // El dueño ve TODAS las citas: si una está a nombre de alguien que no
+        // tiene columna (el mismo dueño, un barbero que ya no está en Config…)
+        // se le abre columna, para que nada quede escondido.
+        if (!esDueno) return;
+        barberos.push(barbero);
+      }
+
+      citas.push({
+        id: id, fecha: iso, hora: aHHMM(f[3]), fin: aHHMM(f[4]),
+        duracion: Number(f[7]) || 0, barbero: barbero,
+        servicio: String(f[6]).trim(), precio: Number(f[8]) || 0,
+        cliente: String(f[9]).trim(), telefono: String(f[10]).trim(),
+        notas: String(f[13]).trim(),
+        estadoReserva: String(f[12]).trim(),       // Confirmada | Cancelada
+        estadoReal: estados[id] || ''              // Pendiente | Atendido | No asistió | Cancelado | ''
+      });
+    });
+  }
+  citas.sort(function (a, b) {
+    if (a.fecha !== b.fecha) return a.fecha < b.fecha ? -1 : 1;
+    return a.hora < b.hora ? -1 : 1;
+  });
+
+  var horarios = {};
+  barberos.forEach(function (n) { if (horariosTodos[n]) horarios[n] = horariosTodos[n]; });
+
+  // --- Bloqueos (una sola lectura) ---
+  var bloqueos = [];
+  var hb = libro().getSheetByName(HOJA_BLOQUEOS);
+  if (hb && hb.getLastRow() > 1) {
+    hb.getRange(2, 1, hb.getLastRow() - 1, 5).getValues().forEach(function (f) {
+      var iso = aISO(f[1]);
+      if (!iso || iso < desde || iso > hasta) return;
+      var quien = String(f[0]).trim();
+      if (quien && quien !== 'Todos' && barberos.indexOf(quien) < 0) return;
+      bloqueos.push({
+        barbero: quien, fecha: iso,
+        desde: aHHMM(f[2]), hasta: aHHMM(f[3]),
+        motivo: String(f[4]).trim()
+      });
+    });
+  }
+
+  // --- Eventos manuales de Google Calendar: solo para rangos cortos (día/semana). ---
+  // En vista mes se omiten (el mes solo necesita el conteo de citas por día).
+  var dias = Math.round((aFechaHora(hasta, '00:00') - aFechaHora(desde, '00:00')) / 86400000) + 1;
+  var eventosManuales = {}, calendarOmitido = true;
+
+  if (USAR_CALENDARIO && dias <= 8) {
+    calendarOmitido = false;
+    var bs = leerBarberos();
+    var desdeFecha = aFechaHora(desde, '00:00');
+    var hastaFecha = new Date(aFechaHora(hasta, '00:00').getTime() + 86400000);
+
+    barberos.forEach(function (nombre) {
+      var b = bs[nombre];
+      if (!b || !b.calendario) return;
+      eventosManuales[nombre] = [];
+      try {
+        var cal = CalendarApp.getCalendarById(b.calendario);
+        if (!cal) return;
+        cal.getEvents(desdeFecha, hastaFecha).forEach(function (ev) {
+          if (ev.getTag('riif') === '1') return;   // ya representado en `citas`
+          if (ev.isAllDayEvent()) {
+            eventosManuales[nombre].push({
+              fecha: Utilities.formatDate(ev.getStartTime(), TZ, 'yyyy-MM-dd'),
+              ini: '00:00', fin: '23:59', titulo: ev.getTitle()
+            });
+            return;
+          }
+          eventosManuales[nombre].push({
+            fecha: Utilities.formatDate(ev.getStartTime(), TZ, 'yyyy-MM-dd'),
+            ini: Utilities.formatDate(ev.getStartTime(), TZ, 'HH:mm'),
+            fin: Utilities.formatDate(ev.getEndTime(), TZ, 'HH:mm'),
+            titulo: ev.getTitle()
+          });
+        });
+      } catch (err) { /* si el calendario falla, el resto del calendario sigue funcionando */ }
+    });
+  }
+
+  return {
+    ok: true,
+    hoy: hoyISO(),
+    barberos: barberos,
+    horarios: horarios,
+    bloqueos: bloqueos,
+    eventosManuales: eventosManuales,
+    calendarOmitido: calendarOmitido,
+    citas: citas
+  };
+}
+
+/**
  * Crea una cita desde el dashboard.
  * d = { modo:'ahora'|'agendar', servicios:[nombre,...], barbero, fecha, hora,
  *       cliente, telefono, email, notas }
@@ -737,10 +1108,10 @@ function crearCitaDashboard(token, d) {
   var combo = _combinarServicios_(cfg, d.servicios || d.servicio);
   if (!combo.ok) return { ok: false, error: combo.error };
 
-  var cliente = String(d.cliente || '').trim();
+  // Uso interno: nombre y teléfono son opcionales (la reserva web sí los exige).
+  var cliente = String(d.cliente || '').trim() || CLIENTE_SIN_NOMBRE;
   var tel = String(d.telefono || '').replace(/\D/g, '');
-  if (cliente.length < 3) return { ok: false, error: 'Escribe el nombre del cliente.' };
-  if (tel.length < 7) return { ok: false, error: 'Escribe un teléfono válido.' };
+  if (tel && tel.length < 7) return { ok: false, error: 'El teléfono está incompleto (o déjalo vacío).' };
 
   // Un barbero solo se agenda a sí mismo; el dueño elige.
   var barbero = (s.rol === 'Dueño') ? String(d.barbero || '').trim() : s.nombre;
@@ -749,6 +1120,16 @@ function crearCitaDashboard(token, d) {
   var lock = LockService.getScriptLock();
   try { lock.waitLock(20000); }
   catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
+
+  // Anti-duplicado: el formulario manda una `clave` única por cita. Si llega
+  // dos veces (doble toque, o reintento porque el servidor tardó), la segunda
+  // devuelve la cita ya creada en vez de crear otra igual.
+  var clave = String(d.clave || '').trim();
+  var cache = CacheService.getScriptCache();
+  if (clave) {
+    var previa = cache.get('cita-' + clave);
+    if (previa) { lock.releaseLock(); return { ok: true, repetida: true, reserva: { id: previa } }; }
+  }
 
   try {
     var fecha, hora, asignado;
@@ -786,9 +1167,13 @@ function crearCitaDashboard(token, d) {
       nombre: cliente, telefono: tel, notas: String(d.notas || '').trim()
     };
 
+    // Se marca la clave ANTES de los pasos lentos (Calendar, correos), para
+    // que un reintento que llegue mientras tanto tampoco duplique.
+    if (clave) cache.put('cita-' + clave, r.id, 21600);   // 6 horas
     return _guardarCitaNueva_(r, { correoCliente: d.email });
 
   } catch (err) {
+    if (clave) { try { cache.remove('cita-' + clave); } catch (e) {} }
     return { ok: false, error: 'No se pudo crear la cita: ' + err.message };
   } finally {
     lock.releaseLock();
@@ -811,9 +1196,14 @@ function getCitaDashboard(token, id) {
     if (s.rol !== 'Dueño' && barbero !== s.nombre) return { error: 'Esa cita no es tuya.' };
 
     var filaReg = idsEnRegistro_()[id];
-    var estadoReg = '';
+    var estadoReg = '', metodoReg = '', propinaReg = 0, descuentoReg = 0, productosReg = {};
     if (filaReg) {
-      estadoReg = String(libro().getSheetByName('Registro').getRange(filaReg, 12).getValue()).trim();
+      var hg = libro().getSheetByName('Registro');
+      estadoReg    = String(hg.getRange(filaReg, 12).getValue()).trim();
+      metodoReg    = String(hg.getRange(filaReg, 11).getValue()).trim();
+      propinaReg   = Number(hg.getRange(filaReg, 10).getValue()) || 0;
+      descuentoReg = Number(hg.getRange(filaReg, 8).getValue()) || 0;
+      productosReg = _productosDeFila_(hg, filaReg);
     }
     return {
       id: id, fecha: aISO(f[2]), hora: aHHMM(f[3]), fin: aHHMM(f[4]),
@@ -822,7 +1212,9 @@ function getCitaDashboard(token, id) {
       cliente: String(f[9]).trim(), telefono: String(f[10]).trim(),
       email: String(f[11]).trim(), notas: String(f[13]).trim(),
       estado: String(f[12]).trim(),
-      enRegistro: !!filaReg, estadoRegistro: estadoReg
+      enRegistro: !!filaReg, estadoRegistro: estadoReg,
+      metodoRegistro: metodoReg, propinaRegistro: propinaReg,
+      descuentoRegistro: descuentoReg, productosRegistro: productosReg
     };
   }
   return null;
@@ -831,6 +1223,9 @@ function getCitaDashboard(token, id) {
 /**
  * Modifica una cita. `cambios` trae solo los campos que cambian:
  * { fecha, hora, barbero, servicio, cliente, telefono, notas }
+ * `cambios.mover` = viene de arrastrar la cita en el calendario: se valida
+ * que la nueva franja esté en el horario y libre, y si el que la mueve es el
+ * mismo barbero no se le manda aviso (ya lo sabe).
  */
 function modificarCitaDashboard(token, id, cambios) {
   var s;
@@ -897,7 +1292,12 @@ function modificarCitaDashboard(token, id, cambios) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !hora) {
         return { ok: false, error: 'Día u hora no válidos.' };
       }
-      if (cliente.length < 3) return { ok: false, error: 'El nombre del cliente es muy corto.' };
+      if (!cliente) cliente = CLIENTE_SIN_NOMBRE;
+
+      if (cambios.mover) {
+        var chk = _validarFranja_(barbero, fecha, hora, combo.duracion || PASO_MIN, id);
+        if (!chk.ok) return { ok: false, error: chk.error };
+      }
 
       var finTxt = aTexto(aMin(hora) + combo.duracion);
       var r = {
@@ -928,7 +1328,8 @@ function modificarCitaDashboard(token, id, cambios) {
       h.getRange(fila, COL_AVISO).setFormula(
         link ? '=HYPERLINK("' + link + '";"Avisar a ' + r.barbero + '")' : '');
 
-      try { notificarBarbero(r, 'modificada'); } catch (e) {}
+      var avisar = !(cambios.mover && s.nombre === barbero && barberoViejo === barbero);
+      if (avisar) { try { notificarBarbero(r, 'modificada'); } catch (e) {} }
 
       // Registro (si está y no Atendido)
       if (filaReg) {
@@ -939,6 +1340,8 @@ function modificarCitaDashboard(token, id, cambios) {
         hg.getRange(filaReg, 1).setNumberFormat('DD/MM/YYYY');
         hg.getRange(filaReg, 2).setValue(hora);
         hg.getRange(filaReg, 3).setValue(barbero);
+        hg.getRange(filaReg, 4).setValue(cliente);
+        hg.getRange(filaReg, 5).setValue(tel);
         hg.getRange(filaReg, 6).setValue(combo.nombre);
         hg.getRange(filaReg, 7).setValue(combo.precio);
         hg.getRange(filaReg, 9).setValue(Math.max(combo.precio - descAct, 0));
@@ -966,13 +1369,70 @@ function cancelarCitaDashboard(token, id) {
   try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
   id = String(id || '').trim();
 
-  if (s.rol !== 'Dueño') {
-    var c = getCitaDashboard(token, id);
-    if (!c) return { ok: false, error: 'No encontramos esa cita.' };
-    if (c.error) return { ok: false, error: c.error };
-    if (c.barbero !== s.nombre) return { ok: false, error: 'Esa cita no es tuya.' };
+  var c = getCitaDashboard(token, id);
+  if (!c) return { ok: false, error: 'No encontramos esa cita.' };
+  if (c.error) return { ok: false, error: c.error };
+  if (s.rol !== 'Dueño' && c.barbero !== s.nombre) return { ok: false, error: 'Esa cita no es tuya.' };
+  // Una cita ya cobrada no se "cancela": el Registro la seguiría contando como
+  // Atendido (plata y comisión) aunque en Reservas y el calendario desaparezca.
+  if (c.estadoRegistro === 'Atendido') {
+    return { ok: false, error: s.rol === 'Dueño'
+      ? 'Esta cita ya se cobró. Si fue un error o está duplicada, usa "Borrar definitivamente".'
+      : 'Esta cita ya se cobró. Pídele al administrador que la elimine si fue un error.' };
   }
   return cancelarReserva(id);
+}
+
+/**
+ * Elimina una cita de TODO el sistema (solo Dueño): fila de Reservas, fila del
+ * Registro, evento de Google Calendar, y devuelve al inventario los productos
+ * que se habían descontado. Pensado para citas duplicadas o creadas por error;
+ * para un cliente que no vino se usa "Cancelar", que deja la huella.
+ */
+function eliminarCitaDashboard(token, id) {
+  try { _sesionDueno_(token); } catch (e) { return { ok: false, error: e.message }; }
+  id = String(id || '').trim();
+  if (!id) return { ok: false, error: 'Falta el código de la cita.' };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); }
+  catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
+
+  try {
+    var encontrada = false;
+
+    // 1. Registro: devolver productos al inventario y borrar la fila
+    var hg = libro().getSheetByName('Registro');
+    var filaReg = idsEnRegistro_()[id];
+    if (hg && filaReg) {
+      var prod = _productosDeFila_(hg, filaReg);
+      var hi = libro().getSheetByName('Inventario');
+      if (hi) actualizarInventario_(hi, _deltaProductos_({}, prod));
+      hg.deleteRow(filaReg);
+      encontrada = true;
+    }
+
+    // 2. Reservas + evento de Calendar
+    var h = libro().getSheetByName(HOJA_RESERVAS);
+    if (h && h.getLastRow() >= 2) {
+      var datos = h.getRange(2, 1, h.getLastRow() - 1, COL_EVENTO).getValues();
+      for (var i = datos.length - 1; i >= 0; i--) {
+        if (String(datos[i][0]).trim() !== id) continue;
+        var idEvento = String(datos[i][COL_EVENTO - 1] || '').trim();
+        if (idEvento) { try { borrarEvento(String(datos[i][5]).trim(), idEvento); } catch (e) {} }
+        h.deleteRow(i + 2);
+        encontrada = true;
+      }
+    }
+
+    if (!encontrada) return { ok: false, error: 'No encontramos esa cita.' };
+    SpreadsheetApp.flush();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: 'No se pudo eliminar: ' + err.message };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** Link de WhatsApp para avisarle al barbero de una cita (botón "Avisar al barbero"). */
@@ -1000,20 +1460,42 @@ function _sesionDueno_(token) {
   return s;
 }
 
-/** Inventario completo para la pestaña del dueño. */
+/**
+ * Inventario completo para la pestaña del dueño.
+ * Stock = inicial + entradas − vendidas − cortesías + ajustes (col I).
+ * Si en la hoja alguien escribió un número a mano en "Stock actual" (col F,
+ * borrando la fórmula), ese número se respeta: se pasa la diferencia a
+ * Ajustes y se vuelve a poner la fórmula, para que siga descontando ventas.
+ */
 function getInventarioDashboard(token) {
   _sesionDueno_(token);
   var hi = libro().getSheetByName('Inventario');
   if (!hi || hi.getLastRow() < 2) return { productos: [] };
+  _asegurarColAjustes_(hi);
 
-  var filas = hi.getRange(2, 1, hi.getLastRow() - 1, 8).getValues();
+  var n = hi.getLastRow() - 1;
+  var filas = hi.getRange(2, 1, n, 9).getValues();
+  var formulasF = hi.getRange(2, 6, n, 1).getFormulas();
   var productos = [];
-  filas.forEach(function (f) {
+  filas.forEach(function (f, i) {
     var nombre = String(f[0] || '').trim();
     if (!nombre) return;
     var ini = Number(f[1]) || 0, ent = Number(f[2]) || 0;
     var ven = Number(f[3]) || 0, reg = Number(f[4]) || 0;
-    var stock = ini + ent - ven - reg;
+    var aju = Number(f[8]) || 0;
+    var stock = ini + ent - ven - reg + aju;
+
+    var fila = i + 2;
+    if (!formulasF[i][0]) {
+      var manual = f[5];
+      if (manual !== '' && manual !== null && !isNaN(Number(manual)) && Number(manual) !== stock) {
+        aju += Number(manual) - stock;
+        stock = Number(manual);
+        hi.getRange(fila, 9).setValue(aju);
+      }
+      hi.getRange(fila, 6).setFormula(_formulaStock_(fila));
+    }
+
     productos.push({
       producto: nombre,
       precio: Number(f[7]) || 0,
@@ -1025,6 +1507,40 @@ function getInventarioDashboard(token) {
     });
   });
   return { productos: productos };
+}
+
+/**
+ * Deja el stock de un producto en `cantidad` exacta (conteo físico). La
+ * diferencia va a la col I "Ajustes", así no se pierde el historial de
+ * entradas, ventas ni cortesías. Solo Dueño.
+ */
+function ajustarStockDashboard(token, producto, cantidad) {
+  try { _sesionDueno_(token); } catch (e) { return { ok: false, error: e.message }; }
+  cantidad = Number(cantidad);
+  if (isNaN(cantidad) || cantidad < 0 || Math.floor(cantidad) !== cantidad) {
+    return { ok: false, error: 'Escribe una cantidad entera (0 o más).' };
+  }
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); } catch (e) { return { ok: false, error: 'Intenta de nuevo.' }; }
+  try {
+    var hi = libro().getSheetByName('Inventario');
+    if (!hi || hi.getLastRow() < 2) return { ok: false, error: 'No hay inventario.' };
+    _asegurarColAjustes_(hi);
+    var filas = hi.getRange(2, 1, hi.getLastRow() - 1, 9).getValues();
+    for (var i = 0; i < filas.length; i++) {
+      var f = filas[i];
+      if (normalizar(f[0]) !== normalizar(producto)) continue;
+      var fila = i + 2;
+      var sinAjuste = (Number(f[1]) || 0) + (Number(f[2]) || 0) - (Number(f[3]) || 0) - (Number(f[4]) || 0);
+      hi.getRange(fila, 9).setValue(cantidad - sinAjuste);
+      hi.getRange(fila, 6).setFormula(_formulaStock_(fila));
+      SpreadsheetApp.flush();
+      return { ok: true, inventario: getInventarioDashboard(token) };
+    }
+    return { ok: false, error: 'No encontré ese producto.' };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** Repone stock (suma a Entradas). Solo Dueño. */
@@ -1068,7 +1584,8 @@ function crearProductoDashboard(token, datos) {
 
     var fila = hi.getLastRow() + 1;
     hi.getRange(fila, 1, 1, 8).setValues([[nombre, stockIni, 0, 0, 0, '', 0, precio]]);
-    hi.getRange(fila, 6).setFormula('=B' + fila + '+C' + fila + '-D' + fila + '-E' + fila);
+    _asegurarColAjustes_(hi);
+    hi.getRange(fila, 6).setFormula(_formulaStock_(fila));
     hi.getRange(fila, 7).setNumberFormat('$#,##0');
     hi.getRange(fila, 8).setNumberFormat('$#,##0');
     SpreadsheetApp.flush();

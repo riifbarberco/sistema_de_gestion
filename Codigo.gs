@@ -78,14 +78,15 @@ var HOJA_RESERVAS = 'Reservas';
 var HOJA_BLOQUEOS = 'Bloqueos';
 var HOJA_BARBEROS = 'Barberos';
 var COL_EVENTO    = 15;   // columna donde se guarda el ID del evento de calendario
-var COL_AVISO     = 16;   // columna con el botón "Avisar al barbero" 
+var COL_AVISO     = 16;   // columna con el botón "Avisar al barbero"
+var COL_VALOR_PROD = 28;  // Registro col AB: $ de productos vendidos (va 100% a la barbería)
 var DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
  
 // ---------- Punto de entrada web ----------
 function doGet(e) {
   var p  = e && e.parameter ? e.parameter.p : null;
   var id = e && e.parameter ? e.parameter.c : null;
-  var tpl, titulo, ogTitulo, ogDesc;
+  var tpl, titulo;
 
   if (p === 'dashboard') {
     tpl = HtmlService.createTemplateFromFile('Dashboard');
@@ -99,11 +100,6 @@ function doGet(e) {
     tpl = HtmlService.createTemplateFromFile('Reservar');
     tpl.reservaId = '';
     titulo   = 'Reservar en ' + NEGOCIO;
-    // og:* solo en la página pública de reservas: es la que se comparte por
-    // WhatsApp/redes y la que va en "sitio web" de la ficha de Google Maps.
-    // Sin estas etiquetas, esas plataformas muestran el link pelado o nada.
-    ogTitulo = 'Reserva tu cita — ' + NEGOCIO;
-    ogDesc   = 'Elige barbero, servicio y horario en segundos. ' + DIRECCION + '.';
   }
 
   var out = tpl.evaluate()
@@ -111,12 +107,11 @@ function doGet(e) {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 
-  if (ogTitulo) {
-    out.addMetaTag('og:title', ogTitulo)
-       .addMetaTag('og:description', ogDesc);
-    // La tarjeta con imagen para compartir la da la landing aparte
-    // (riifbarberco.github.io/reservas), que redirige a esta página.
-  }
+  // OJO: addMetaTag() solo acepta viewport y las de "web app" (apple-mobile-
+  // web-app-capable, etc.). Etiquetas og:* lanzan "La metaetiqueta que
+  // especificaste no se admite" y tumban la página. La tarjeta para compartir
+  // (título, descripción, imagen) la da la landing aparte
+  // (riifbarberco.github.io/reservas), que redirige a esta página.
 
   return out;
 }
@@ -269,12 +264,51 @@ function _combinarServicios_(cfg, nombres) {
  * fórmula"), aunque la sintaxis sea válida en inglés.
  */
 function _aplicarFormulasComision_(hg, fila) {
+  _asegurarColValorProductos_(hg);
   hg.getRange(fila, 13).setFormula(
     '=IF(L' + fila + '="Atendido";IFERROR(I' + fila + '*INDEX(Config!$B:$B;MATCH(C' + fila + ';Config!$A:$A;0));0);0)');
   hg.getRange(fila, 14).setFormula(
     '=IF(L' + fila + '="Atendido";M' + fila + '+IF(J' + fila + '="";0;J' + fila + ');0)');
+  // Neto barbería = servicio − comisión + productos vendidos (col AB). Los
+  // productos no pasan por la comisión: son 100% de la barbería.
   hg.getRange(fila, 15).setFormula(
-    '=IF(L' + fila + '="Atendido";I' + fila + '-M' + fila + ';0)');
+    '=IF(L' + fila + '="Atendido";I' + fila + '-M' + fila + '+N(AB' + fila + ');0)');
+}
+
+/**
+ * Deja lista la col AB (28) "Valor productos" del Registro. La fórmula de Neto
+ * la referencia, y si la cuadrícula tiene menos columnas daría #REF!.
+ * Se revisa una sola vez por ejecución.
+ */
+var _colValorProdOk_ = false;
+function _asegurarColValorProductos_(hg) {
+  if (_colValorProdOk_) return;
+  if (hg.getMaxColumns() < COL_VALOR_PROD) {
+    hg.insertColumnsAfter(hg.getMaxColumns(), COL_VALOR_PROD - hg.getMaxColumns());
+  }
+  var enc = hg.getRange(1, COL_VALOR_PROD);
+  if (String(enc.getValue()).trim() !== 'Valor productos') {
+    enc.setValue('Valor productos')
+      .setFontWeight('bold').setBackground('#111111').setFontColor('#FFFFFF');
+  }
+  _colValorProdOk_ = true;
+}
+
+/** { nombreNormalizado: precio } desde la hoja Inventario. */
+function _preciosProductos_() {
+  var mapa = {};
+  _productosCatalogo_().forEach(function (p) { mapa[normalizar(p.nombre)] = p.precio; });
+  return mapa;
+}
+
+/** $ de los productos VENDIDOS (las cortesías no suman) de un mapa {nombre:{v,r}}. */
+function _valorProductos_(prod, precios) {
+  precios = precios || _preciosProductos_();
+  var total = 0;
+  Object.keys(prod || {}).forEach(function (n) {
+    total += (Number(prod[n] && prod[n].v) || 0) * (Number(precios[normalizar(n)]) || 0);
+  });
+  return total;
 }
 
 function leerHorarios() {
@@ -367,7 +401,7 @@ function calendarioGeneral() {
 }
  
 // ---------- Ocupación ----------
-function ocupacion(barbero, iso) {
+function ocupacion(barbero, iso, excluirId) {
   var bloques = [];
  
   var hr = libro().getSheetByName(HOJA_RESERVAS);
@@ -376,6 +410,7 @@ function ocupacion(barbero, iso) {
       if (aISO(f[2]) !== iso) return;
       if (String(f[5]).trim() !== barbero) return;
       if (String(f[12]).trim() === 'Cancelada') return;
+      if (excluirId && String(f[0]).trim() === excluirId) return;   // la cita que se está moviendo
  
       var ini = aMin(aHHMM(f[3]));
       if (ini === null) return;                       // sin hora legible, no se puede bloquear
@@ -670,7 +705,7 @@ function crearEvento(r) {
  
     var desc =
       'Cliente: ' + r.nombre + '\n' +
-      (MOSTRAR_TELEFONO_A_BARBERO
+      (MOSTRAR_TELEFONO_A_BARBERO && r.telefono
         ? 'Teléfono: ' + r.telefono + '\n' +
           'Escribirle: https://wa.me/57' + String(r.telefono).replace(/^57/, '') + '\n'
         : '') +
@@ -789,7 +824,7 @@ function notificarBarbero(r, tipo) {
     'Cuándo: ' + cuando + ' (' + r.hora + ' a ' + r.fin + ')\n' +
     'Servicio: ' + r.servicio + ' · ' + duracionTexto(r.duracion) + '\n' +
     'Cliente: ' + r.nombre + '\n' +
-    (MOSTRAR_TELEFONO_A_BARBERO
+    (MOSTRAR_TELEFONO_A_BARBERO && r.telefono
       ? 'Teléfono: ' + r.telefono + '\n' +
         'Escribirle: https://wa.me/57' + String(r.telefono).replace(/^57/, '') + '\n'
       : '') +
@@ -806,13 +841,13 @@ function notificarBarbero(r, tipo) {
     enviarWhatsApp(b.whatsapp, b.apikey,
       etiqWa + '\n' +
       cuando + '\n' + r.servicio + '\n' +
-      r.nombre + ' — ' + r.telefono + '\n' + pesos(r.precio));
+      r.nombre + (r.telefono ? ' — ' + r.telefono : '') + '\n' + pesos(r.precio));
   }
 
   if (USAR_WHATSAPP && WHATSAPP && WA_APIKEY_DUENO) {
     enviarWhatsApp(WHATSAPP, WA_APIKEY_DUENO,
       (esNueva ? 'Nueva cita' : esModif ? 'Cita cambiada' : 'Cita cancelada') + ' · ' + r.barbero + '\n' +
-      cuando + ' · ' + r.servicio + '\n' + r.nombre + ' — ' + r.telefono);
+      cuando + ' · ' + r.servicio + '\n' + r.nombre + (r.telefono ? ' — ' + r.telefono : ''));
   }
 }
  
@@ -831,7 +866,7 @@ function linkAvisoBarbero(r) {
     textoFecha(r.fecha) + '\n' +
     r.hora + ' a ' + r.fin + ' (' + duracionTexto(r.duracion) + ')\n' +
     'Cliente: ' + r.nombre + '\n' +
-    (MOSTRAR_TELEFONO_A_BARBERO ? 'Teléfono: ' + r.telefono + '\n' : '') +
+    (MOSTRAR_TELEFONO_A_BARBERO && r.telefono ? 'Teléfono: ' + r.telefono + '\n' : '') +
     'Valor: ' + pesos(r.precio) + '\n' +
     (r.notas ? 'Nota: ' + r.notas + '\n' : '') +
     'Código: ' + r.id;
@@ -1338,8 +1373,61 @@ function menuPersonalizado() {
     .addItem('Diagnóstico de agenda', 'diagnosticoAgenda')
     .addItem('Probar notificaciones', 'probarNotificaciones')
     .addSeparator()
-    .addItem('Reparar fórmulas de comisión (M/N/O)', 'repararFormulasComision')
+    .addItem('Reparar fórmulas de comisión y productos', 'repararFormulasComision')
+    .addItem('Borrar citas canceladas de la hoja', 'borrarCitasCanceladas')
+    .addItem('Sincronizar calendario con el Registro', 'sincronizarCalendarioConRegistro')
     .addToUi();
+}
+
+/**
+ * Limpieza: borra de Reservas las citas "Cancelada" y del Registro las filas
+ * "Cancelado" (con su cita). Los eventos de Calendar ya se borraron al cancelar.
+ * Si alguna fila cancelada tenía bebidas anotadas, se devuelven al inventario.
+ */
+function borrarCitasCanceladas() {
+  var ui = SpreadsheetApp.getUi();
+  var hr = libro().getSheetByName(HOJA_RESERVAS);
+  var hg = libro().getSheetByName('Registro');
+
+  var filasRes = [], ids = {};
+  if (hr && hr.getLastRow() >= 2) {
+    hr.getRange(2, 1, hr.getLastRow() - 1, 13).getValues().forEach(function (f, i) {
+      if (String(f[12]).trim() !== 'Cancelada') return;
+      filasRes.push(i + 2);
+      ids[String(f[0]).trim()] = 1;
+    });
+  }
+  var filasReg = [];
+  if (hg && hg.getLastRow() >= 2) {
+    hg.getRange(2, 1, hg.getLastRow() - 1, 16).getValues().forEach(function (f, i) {
+      var nota = String(f[15] || '').trim();
+      var id = nota.indexOf('Cita ') === 0 ? nota.substring(5).trim() : '';
+      if (String(f[11]).trim() === 'Cancelado' || (id && ids[id])) filasReg.push(i + 2);
+    });
+  }
+
+  if (!filasRes.length && !filasReg.length) { ui.alert('No hay citas canceladas en la hoja.'); return; }
+  var r = ui.alert('Borrar citas canceladas',
+    'Se van a borrar ' + filasRes.length + ' cita(s) canceladas de Reservas y ' +
+    filasReg.length + ' fila(s) del Registro. No se puede deshacer.\n\n¿Continuar?',
+    ui.ButtonSet.YES_NO);
+  if (r !== ui.Button.YES) return;
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var hi = libro().getSheetByName('Inventario');
+    // De abajo hacia arriba, para que borrar una fila no corra las demás.
+    filasReg.sort(function (a, b) { return b - a; }).forEach(function (fila) {
+      if (hi) actualizarInventario_(hi, _deltaProductos_({}, _productosDeFila_(hg, fila)));
+      hg.deleteRow(fila);
+    });
+    filasRes.sort(function (a, b) { return b - a; }).forEach(function (fila) { hr.deleteRow(fila); });
+  } finally {
+    lock.releaseLock();
+  }
+  ui.alert('Listo: se borraron ' + filasRes.length + ' cita(s) de Reservas y ' +
+           filasReg.length + ' fila(s) del Registro.');
 }
 
 /**
@@ -1356,13 +1444,34 @@ function repararFormulasComision() {
 
   var ultima = hg.getLastRow();
   var colA = hg.getRange(2, 1, ultima - 1, 1).getValues();
-  var n = 0;
+  _asegurarColValorProductos_(hg);
+  // Productos (col 22-27) y su valor (col 28), para completar el $ de las
+  // filas cerradas antes de que existiera la columna "Valor productos".
+  var prodCols = hg.getRange(2, 22, ultima - 1, 7).getValues();
+  var precios = _preciosProductos_();
+  var n = 0, nv = 0;
   for (var i = 0; i < colA.length; i++) {
     if (!colA[i][0] || String(colA[i][0]).trim() === '') continue;   // fila vacía, se salta
     _aplicarFormulasComision_(hg, i + 2);
     n++;
+    if (prodCols[i][6] === '' || prodCols[i][6] === null) {
+      var valor = _valorProductos_(_leerProductosRegistro_(prodCols[i].slice(0, 6)), precios);
+      if (valor > 0) { hg.getRange(i + 2, COL_VALOR_PROD).setValue(valor); nv++; }
+    }
   }
-  ui.alert('Listo: se repararon las columnas M, N y O en ' + n + ' fila(s) del Registro.');
+  // Inventario: Stock actual = inicial + entradas − vendidas − cortesías + ajustes
+  var hi = libro().getSheetByName('Inventario');
+  if (hi && hi.getLastRow() >= 2) {
+    _asegurarColAjustes_(hi);
+    var nombresInv = hi.getRange(2, 1, hi.getLastRow() - 1, 1).getValues();
+    for (var k = 0; k < nombresInv.length; k++) {
+      if (!String(nombresInv[k][0]).trim()) continue;
+      var fi = k + 2;
+      hi.getRange(fi, 6).setFormula(_formulaStock_(fi));
+    }
+  }
+  ui.alert('Listo: se repararon las columnas M, N y O en ' + n + ' fila(s) del Registro.' +
+    (nv ? '\nSe completó el valor de productos en ' + nv + ' fila(s).' : ''));
 }
  
 function onOpen() { menuPersonalizado(); }
@@ -1595,6 +1704,9 @@ function procesarRespuestasForm() {
 
     hg.getRange(filaReg, 22).setValue(_formatearProductos_(nuevoProd));
     if (hg.getMaxColumns() >= 27) hg.getRange(filaReg, 23, 1, 5).clearContent();
+    _asegurarColValorProductos_(hg);
+    hg.getRange(filaReg, COL_VALOR_PROD).setValue(_valorProductos_(nuevoProd));
+    _aplicarFormulasComision_(hg, filaReg);   // Neto con la fórmula que suma productos
 
     if (hi) actualizarInventario_(hi, _deltaProductos_(nuevoProd, viejoProd));
  
@@ -1609,6 +1721,7 @@ function procesarRespuestasForm() {
  * delta = { 'Agua': {v:+2, r:0}, 'Gaseosa': {v:-1, r:0} }
  * Hoja Inventario: A Producto | B Stock inicial | C Entradas | D Vendidas |
  *                  E Regaladas | F Stock actual (fórmula) | G Valor vendido | H Precio
+ *                  I Ajustes (conteo físico: + si sobró, − si faltó)
  */
 function actualizarInventario_(hi, delta) {
   if (!hi || !delta) return;
@@ -1707,6 +1820,125 @@ function _deltaProductos_(nuevo, viejo) {
 // ==================== 3. CANCELACIONES TARDÍAS ====================
  
 /**
+ * Deja Reservas (lo que pinta el calendario) igual al Registro (lo que sale
+ * en el Resumen). El Registro manda, porque es donde se cierra y se cobra:
+ *
+ *  1. Fila del Registro sin cita en Reservas (borrada a mano, o escrita a mano
+ *     en el Registro sin código) → se crea la cita en Reservas.
+ *  2. Registro "Atendido"/"No asistió" pero Reservas "Cancelada" → la cita sí
+ *     pasó: Reservas vuelve a "Confirmada".
+ *  3. Fecha, hora o barbero distintos → Reservas toma los del Registro.
+ *
+ * En los casos 1-3, si la cita es de hoy en adelante se (re)crea su evento de
+ * Google Calendar. Las filas "Cancelado" del Registro no se tocan. No toma el
+ * candado: quien la llama ya debe tenerlo.
+ * @returns {number} cuántas citas se arreglaron
+ */
+function sincronizarReservasConRegistro_() {
+  var hg = libro().getSheetByName('Registro');
+  var hr = libro().getSheetByName(HOJA_RESERVAS);
+  if (!hg || !hr || hg.getLastRow() < 2) return 0;
+
+  var reg = hg.getRange(2, 1, hg.getLastRow() - 1, 21).getValues();
+  var res = hr.getLastRow() >= 2 ? hr.getRange(2, 1, hr.getLastRow() - 1, COL_EVENTO).getValues() : [];
+  var filaRes = {};
+  res.forEach(function (f, i) { var id = String(f[0]).trim(); if (id) filaRes[id] = i; });
+
+  var hoy = hoyISO();
+  var n = 0;
+
+  reg.forEach(function (f, i) {
+    var estado = String(f[11] || '').trim();
+    if (estado === 'Cancelado') return;
+    var iso = _isoCeldaRegistro_(f[0]);
+    var hora = aHHMM(f[1]);
+    var barbero = String(f[2] || '').trim();
+    if (!iso || !hora || aMin(hora) === null || !barbero) return;   // fila incompleta: no se adivina
+
+    var nota = String(f[15] || '').trim();
+    var id = nota.indexOf('Cita ') === 0 ? nota.substring(5).trim() : '';
+    var dur = Number(f[20]) || 0;
+
+    // --- 1. No existe en Reservas: crearla ---
+    if (!id || filaRes[id] === undefined) {
+      var notaVieja = '';
+      if (!id) {
+        id = nuevoIdCita_();
+        notaVieja = nota;   // lo que hubiera escrito a mano pasa a las notas de la cita
+        hg.getRange(i + 2, 16).setValue('Cita ' + id);
+      }
+      if (!dur) {
+        var combo = _combinarServicios_(leerConfig(), String(f[5] || '').trim().split(SEPARADOR_COMBO));
+        dur = (combo.ok && combo.duracion) ? combo.duracion : PASO_MIN;
+      }
+      var r = {
+        id: id, fecha: iso, hora: hora, fin: aTexto(aMin(hora) + dur), barbero: barbero,
+        servicio: String(f[5] || '').trim(), duracion: dur, precio: Number(f[6]) || 0,
+        nombre: String(f[3] || '').trim() || 'Sin nombre',
+        telefono: String(f[4] || '').replace(/\D/g, ''), notas: notaVieja
+      };
+      hr.appendRow([r.id, new Date(), r.fecha, r.hora, r.fin, r.barbero, r.servicio,
+                    r.duracion, r.precio, r.nombre, r.telefono, '', 'Confirmada', r.notas]);
+      if (iso >= hoy) {
+        var idEv = crearEvento(r);
+        if (idEv) hr.getRange(hr.getLastRow(), COL_EVENTO).setValue(idEv);
+      }
+      filaRes[id] = -1;   // ya quedó
+      n++;
+      return;
+    }
+
+    var j = filaRes[id];
+    if (j < 0) return;
+    var fr = res[j];
+    var fila = j + 2;
+    var cambio = false;
+
+    // --- 2. Cancelada en Reservas pero atendida en el Registro ---
+    if (String(fr[12]).trim() === 'Cancelada' && (estado === 'Atendido' || estado === 'No asistió')) {
+      hr.getRange(fila, 13).setValue('Confirmada');
+      cambio = true;
+    }
+
+    // --- 3. Fecha / hora / barbero distintos: manda el Registro ---
+    var durRes = Number(fr[7]) || dur || PASO_MIN;
+    if (aISO(fr[2]) !== iso || aHHMM(fr[3]) !== hora || String(fr[5]).trim() !== barbero) {
+      hr.getRange(fila, 3).setValue(iso);
+      hr.getRange(fila, 4).setValue(hora);
+      hr.getRange(fila, 5).setValue(aTexto(aMin(hora) + durRes));
+      hr.getRange(fila, 6).setValue(barbero);
+      cambio = true;
+    }
+
+    if (cambio) {
+      try { borrarEvento(String(fr[5]).trim(), String(fr[COL_EVENTO - 1] || '').trim()); } catch (e) {}
+      var idEv2 = '';
+      if (iso >= hoy) {
+        idEv2 = crearEvento({
+          id: id, fecha: iso, hora: hora, fin: aTexto(aMin(hora) + durRes), barbero: barbero,
+          servicio: String(fr[6]).trim(), duracion: durRes, precio: Number(fr[8]) || 0,
+          nombre: String(fr[9]).trim(), telefono: String(fr[10]).trim(), notas: String(fr[13]).trim()
+        });
+      }
+      hr.getRange(fila, COL_EVENTO).setValue(idEv2 || '');
+      n++;
+    }
+  });
+  return n;
+}
+
+/** Desde el menú: corre la sincronización y cuenta qué hizo. */
+function sincronizarCalendarioConRegistro() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  var n;
+  try { n = sincronizarReservasConRegistro_(); } finally { lock.releaseLock(); }
+  SpreadsheetApp.getUi().alert(n
+    ? 'Listo: se arreglaron ' + n + ' cita(s). El calendario ya muestra lo mismo que el Registro.'
+    : 'Todo cuadra: el calendario ya muestra lo mismo que el Registro.');
+}
+
+/**
  * Si una cita ya estaba en el Registro y después se canceló desde la web,
  * el Registro se pone en "Cancelado" (las fórmulas de comisión se van a cero solas).
  */
@@ -1738,6 +1970,12 @@ function rutinaAutomatica() {
   try { volcarAutomatico(); }        catch (e) { console.error('volcar: ' + e); }
   try { procesarRespuestasForm(); }  catch (e) { console.error('form: ' + e); }
   try { sincronizarCancelaciones(); }catch (e) { console.error('cancel: ' + e); }
+  try {
+    var lock = LockService.getScriptLock();
+    if (lock.tryLock(10000)) {
+      try { sincronizarReservasConRegistro_(); } finally { lock.releaseLock(); }
+    }
+  } catch (e) { console.error('sync registro: ' + e); }
 }
  
 /**
@@ -1832,11 +2070,13 @@ function configurarInventario() {
     }
   });
 
+  _asegurarColAjustes_(hi);
+
   // Fórmula de stock actual + formatos, para todas las filas con producto
   var ult = Math.max(hi.getLastRow(), 4);
   for (var f = 2; f <= ult; f++) {
     if (!hi.getRange(f, 1).getValue()) continue;
-    hi.getRange(f, 6).setFormula('=B' + f + '+C' + f + '-D' + f + '-E' + f);
+    hi.getRange(f, 6).setFormula(_formulaStock_(f));
     hi.getRange(f, 7).setNumberFormat('$#,##0');
     hi.getRange(f, 8).setNumberFormat('$#,##0');
   }
@@ -1864,6 +2104,22 @@ function configurarInventario() {
   );
 }
  
+/** Stock actual = inicial + entradas − vendidas − cortesías + ajustes. */
+function _formulaStock_(f) {
+  return '=B' + f + '+C' + f + '-D' + f + '-E' + f + '+N(I' + f + ')';
+}
+
+/** Deja lista la col I "Ajustes" del Inventario (la usa la fórmula de stock). */
+function _asegurarColAjustes_(hi) {
+  if (hi.getMaxColumns() < 9) hi.insertColumnsAfter(hi.getMaxColumns(), 9 - hi.getMaxColumns());
+  var enc = hi.getRange(1, 9);
+  if (String(enc.getValue()).trim() !== 'Ajustes') {
+    enc.setValue('Ajustes').setFontWeight('bold').setBackground('#111111').setFontColor('#FFFFFF');
+    enc.setNote('Correcciones por conteo físico: + si había más, − si faltaba. ' +
+                'Se llena solo con "Ajustar stock" del Dashboard, o si escribes a mano en "Stock actual".');
+  }
+}
+
 /**
  * Suma `cantidad` a Entradas del producto (búsqueda por nombre en col A).
  * Núcleo sin UI: lo usan el menú y el Dashboard. Devuelve { ok, error }.
