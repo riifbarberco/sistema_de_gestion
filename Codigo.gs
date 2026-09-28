@@ -30,7 +30,7 @@ var DIAS_ADELANTE  = 21;
 
 
 // --- Calendario ---
-var USAR_CALENDARIO    = true;   // false apaga todo lo de Google Calendar
+var USAR_CALENDARIO    = false;  // false apaga todo lo de Google Calendar (los avisos van por Telegram)
 var PREFIJO_CALENDARIO = 'RIIF · ';
 // Fila de la hoja Barberos que NO es un barbero sino el calendario donde se
 // junta todo. Deja '' si no quieres calendario general.
@@ -121,79 +121,147 @@ function include(nombre) {
 }
  
 // ---------- Utilidades ----------
-function libro() { return SpreadsheetApp.getActiveSpreadsheet(); }
+// Memo por ejecución (Apps Script arranca las variables globales de cero en
+// cada llamada, así que nunca queda un valor viejo de otra petición).
+var _libroMemo_ = null, _tzMemo_ = null;
+
+function libro_() { return _libroMemo_ || (_libroMemo_ = SpreadsheetApp.getActiveSpreadsheet()); }
  
 /**
  * Zona horaria de la HOJA. Un valor leído de la hoja hay que formatearlo con
  * la zona de la hoja, no con la del script. Si no coinciden, todas las horas
  * se corren y las citas se solapan.
  */
-function tzLibro() {
-  try { return libro().getSpreadsheetTimeZone() || TZ; } catch (e) { return TZ; }
+function tzLibro_() {
+  // Se llama por cada fecha/hora leída de la hoja: sin memo eran cientos de
+  // consultas a la hoja por petición.
+  if (_tzMemo_) return _tzMemo_;
+  try { _tzMemo_ = libro_().getSpreadsheetTimeZone() || TZ; } catch (e) { _tzMemo_ = TZ; }
+  return _tzMemo_;
 }
  
-function aHHMM(v) {
+function aHHMM_(v) {
   if (v === '' || v === null || v === undefined) return '';
   if (Object.prototype.toString.call(v) === '[object Date]') {
-    return Utilities.formatDate(v, tzLibro(), 'HH:mm');
+    return Utilities.formatDate(v, tzLibro_(), 'HH:mm');
   }
   var s = String(v).trim();
   var m = s.match(/^(\d{1,2})[:.](\d{2})/);
   return m ? ('0' + m[1]).slice(-2) + ':' + m[2] : s;
 }
  
-function aISO(v) {
+function aISO_(v) {
   if (v === '' || v === null || v === undefined) return '';
   if (Object.prototype.toString.call(v) === '[object Date]') {
-    return Utilities.formatDate(v, tzLibro(), 'yyyy-MM-dd');
+    return Utilities.formatDate(v, tzLibro_(), 'yyyy-MM-dd');
   }
   return String(v).trim().slice(0, 10);
 }
  
-function aMin(hhmm) {
+function aMin_(hhmm) {
   var m = String(hhmm).match(/(\d{1,2})[:.](\d{2})/);
   if (!m) return null;
   var min = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
   return isNaN(min) ? null : min;
 }
  
-function aTexto(min) {
+function aTexto_(min) {
   var h = Math.floor(min / 60), m = min % 60;
   return ('0' + h).slice(-2) + ':' + ('0' + m).slice(-2);
 }
  
-function diaSemana(iso) {
+function diaSemana_(iso) {
   var p = iso.split('-');
   var d = new Date(parseInt(p[0],10), parseInt(p[1],10) - 1, parseInt(p[2],10));
   return DIAS[(d.getDay() + 6) % 7];
 }
  
-function hoyISO() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'); }
-function ahoraMin() { return aMin(Utilities.formatDate(new Date(), TZ, 'HH:mm')); }
+function hoyISO_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'); }
+function ahoraMin_() { return aMin_(Utilities.formatDate(new Date(), TZ, 'HH:mm')); }
  
 /** Convierte fecha ISO + hora HH:mm en un Date real en la zona horaria correcta */
-function aFechaHora(iso, hhmm) {
+function aFechaHora_(iso, hhmm) {
   return Utilities.parseDate(iso + ' ' + hhmm, TZ, 'yyyy-MM-dd HH:mm');
 }
  
-function minutosDelDia(fecha) {
-  return aMin(Utilities.formatDate(fecha, TZ, 'HH:mm'));
+function minutosDelDia_(fecha) {
+  return aMin_(Utilities.formatDate(fecha, TZ, 'HH:mm'));
 }
  
-function duracionTexto(m) {
+function duracionTexto_(m) {
   var h = Math.floor(m / 60), r = m % 60;
   if (h && r) return h + ' h ' + r + ' min';
   if (h) return h + ' h';
   return r + ' min';
 }
  
-function pesos(n) {
+function pesos_(n) {
   return '$' + Number(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
  
 // ---------- Lectura de configuración ----------
-function leerConfig() {
-  var h = libro().getSheetByName(HOJA_CONFIG);
+// ---------- Memoria de hojas que casi no cambian ----------
+// Config, Horarios, Barberos y Bloqueos se leían en CADA petición (el
+// calendario, crear cita, la sesión…). Ahora se guardan 10 minutos en la
+// caché del script. Se borran solas si alguien edita esas hojas (onEdit) o
+// si el sistema escribe en ellas (_olvidarHojas_).
+var CACHE_HOJAS_SEG = 600;
+var _memoHojas_ = {};
+
+function _cacheHoja_(clave, leer) {
+  if (_memoHojas_[clave]) return _memoHojas_[clave];
+  var cache = CacheService.getScriptCache();
+  var guardado = cache.get(clave);
+  if (guardado) {
+    try { return (_memoHojas_[clave] = JSON.parse(guardado)); } catch (e) {}
+  }
+  var valor = leer();
+  try { cache.put(clave, JSON.stringify(valor), CACHE_HOJAS_SEG); } catch (e) {}
+  return (_memoHojas_[clave] = valor);
+}
+
+var CLAVE_HOJA = {};
+CLAVE_HOJA[HOJA_CONFIG]   = 'hoja_config';
+CLAVE_HOJA[HOJA_HORARIOS] = 'hoja_horarios';
+CLAVE_HOJA[HOJA_BARBEROS] = 'hoja_barberos';
+CLAVE_HOJA[HOJA_BLOQUEOS] = 'hoja_bloqueos';
+
+/** Borra la memoria de esas hojas (nombres de hoja); sin argumento, de todas. */
+function _olvidarHojas_(hojas) {
+  var claves = (hojas || Object.keys(CLAVE_HOJA)).map(function (n) { return CLAVE_HOJA[n]; })
+    .filter(Boolean);
+  claves.forEach(function (k) { delete _memoHojas_[k]; });
+  try { CacheService.getScriptCache().removeAll(claves); } catch (e) {}
+}
+
+/**
+ * Disparador simple: al editar a mano Config, Horarios, Barberos o Bloqueos,
+ * el sistema olvida la copia en memoria y lee lo nuevo en la próxima petición.
+ */
+function onEdit(e) {
+  try {
+    var nombre = e && e.range ? e.range.getSheet().getName() : '';
+    if (CLAVE_HOJA[nombre]) _olvidarHojas_([nombre]);
+  } catch (err) {}
+}
+
+function leerConfig_() { return _cacheHoja_('hoja_config', _leerConfigHoja_); }
+function leerHorarios_() { return _cacheHoja_('hoja_horarios', _leerHorariosHoja_); }
+
+/** Bloqueos como [{quien, fecha, desde, hasta, motivo}] (fechas ya en texto). */
+function leerBloqueos_() {
+  return _cacheHoja_('hoja_bloqueos', function () {
+    var hb = libro_().getSheetByName(HOJA_BLOQUEOS);
+    if (!hb || hb.getLastRow() < 2) return [];
+    return hb.getRange(2, 1, hb.getLastRow() - 1, 5).getValues().map(function (f) {
+      return { quien: String(f[0]).trim(), fecha: aISO_(f[1]),
+               desde: aHHMM_(f[2]), hasta: aHHMM_(f[3]), motivo: String(f[4]).trim() };
+    }).filter(function (b) { return b.fecha; });
+  });
+}
+
+function _leerConfigHoja_() {
+  var h = libro_().getSheetByName(HOJA_CONFIG);
   if (!h) throw new Error('No existe la hoja Config.');
  
   var barberos = [];
@@ -225,7 +293,7 @@ var SEPARADOR_COMBO = ' + ';
  * precio y duración sumados. Lo usan crearReserva, crearCitaDashboard y
  * modificarCitaDashboard para que una cita pueda tener más de un servicio.
  *
- * @param {Object} cfg     - resultado de leerConfig()
+ * @param {Object} cfg     - resultado de leerConfig_()
  * @param {string|string[]} nombres - un nombre o varios
  * @returns {Object} { ok, nombre, precio, duracion } o { ok:false, error }
  */
@@ -297,7 +365,7 @@ function _asegurarColValorProductos_(hg) {
 /** { nombreNormalizado: precio } desde la hoja Inventario. */
 function _preciosProductos_() {
   var mapa = {};
-  _productosCatalogo_().forEach(function (p) { mapa[normalizar(p.nombre)] = p.precio; });
+  _productosCatalogo_().forEach(function (p) { mapa[normalizar_(p.nombre)] = p.precio; });
   return mapa;
 }
 
@@ -306,21 +374,21 @@ function _valorProductos_(prod, precios) {
   precios = precios || _preciosProductos_();
   var total = 0;
   Object.keys(prod || {}).forEach(function (n) {
-    total += (Number(prod[n] && prod[n].v) || 0) * (Number(precios[normalizar(n)]) || 0);
+    total += (Number(prod[n] && prod[n].v) || 0) * (Number(precios[normalizar_(n)]) || 0);
   });
   return total;
 }
 
-function leerHorarios() {
-  var h = libro().getSheetByName(HOJA_HORARIOS);
+function _leerHorariosHoja_() {
+  var h = libro_().getSheetByName(HOJA_HORARIOS);
   if (!h) return {};
   var mapa = {};
   h.getRange(2, 1, Math.max(h.getLastRow() - 1, 0), 4).getValues().forEach(function (f) {
     var barbero = String(f[0]).trim();
     var dia = String(f[1]).trim();
-    var abre = aHHMM(f[2]), cierra = aHHMM(f[3]);
+    var abre = aHHMM_(f[2]), cierra = aHHMM_(f[3]);
     if (!barbero || !dia || !abre || !cierra) return;
-    if (aMin(abre) === null || aMin(cierra) === null) return;
+    if (aMin_(abre) === null || aMin_(cierra) === null) return;
     mapa[barbero] = mapa[barbero] || {};
     mapa[barbero][dia] = { abre: abre, cierra: cierra };
   });
@@ -328,7 +396,7 @@ function leerHorarios() {
 }
  
 /** Quita tildes, mayúsculas y espacios para comparar encabezados */
-function normalizar(t) {
+function normalizar_(t) {
   return String(t).toLowerCase().trim()
     .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
     .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
@@ -342,17 +410,26 @@ function normalizar(t) {
  * Lo único obligatorio: que exista una columna "Nombre" y que el nombre
  * coincida letra por letra con el de la hoja Config.
  */
-function leerBarberos() {
-  var h = libro().getSheetByName(HOJA_BARBEROS);
+function leerBarberos_() {
+  // Se usa en casi todo (sesión, calendario, avisos, ocupación…): se lee la
+  // hoja una sola vez por petición. Quien escriba en Barberos y vuelva a leer
+  // en la misma ejecución debe llamar antes a _olvidarBarberos_().
+  return _cacheHoja_('hoja_barberos', _leerBarberosHoja_);
+}
+
+function _olvidarBarberos_() { _olvidarHojas_([HOJA_BARBEROS]); }
+
+function _leerBarberosHoja_() {
+  var h = libro_().getSheetByName(HOJA_BARBEROS);
   var mapa = {};
   if (!h || h.getLastRow() < 2) return mapa;
  
   var datos = h.getDataRange().getValues();
-  var enc = datos[0].map(normalizar);
+  var enc = datos[0].map(normalizar_);
  
   function col() {
     for (var i = 0; i < arguments.length; i++) {
-      var idx = enc.indexOf(normalizar(arguments[i]));
+      var idx = enc.indexOf(normalizar_(arguments[i]));
       if (idx >= 0) return idx;
     }
     return -1;
@@ -393,28 +470,28 @@ function leerBarberos() {
 }
  
 /** Calendario donde se juntan las citas de todos los barberos */
-function calendarioGeneral() {
+function calendarioGeneral_() {
   if (!USAR_CALENDARIO || !CALENDARIO_GENERAL) return null;
-  var g = leerBarberos()[CALENDARIO_GENERAL];
+  var g = leerBarberos_()[CALENDARIO_GENERAL];
   if (!g || !g.calendario) return null;
   try { return CalendarApp.getCalendarById(g.calendario); } catch (e) { return null; }
 }
  
 // ---------- Ocupación ----------
-function ocupacion(barbero, iso, excluirId) {
+function ocupacion_(barbero, iso, excluirId) {
   var bloques = [];
  
-  var hr = libro().getSheetByName(HOJA_RESERVAS);
+  var hr = libro_().getSheetByName(HOJA_RESERVAS);
   if (hr && hr.getLastRow() > 1) {
     hr.getRange(2, 1, hr.getLastRow() - 1, 14).getValues().forEach(function (f) {
-      if (aISO(f[2]) !== iso) return;
+      if (aISO_(f[2]) !== iso) return;
       if (String(f[5]).trim() !== barbero) return;
       if (String(f[12]).trim() === 'Cancelada') return;
       if (excluirId && String(f[0]).trim() === excluirId) return;   // la cita que se está moviendo
  
-      var ini = aMin(aHHMM(f[3]));
+      var ini = aMin_(aHHMM_(f[3]));
       if (ini === null) return;                       // sin hora legible, no se puede bloquear
-      var fin = aMin(aHHMM(f[4]));
+      var fin = aMin_(aHHMM_(f[4]));
       if (fin === null || fin <= ini) {               // fin dañado: se reconstruye
         var dur = Number(f[7]) || 0;
         fin = ini + (dur > 0 ? dur : PASO_MIN);
@@ -423,48 +500,64 @@ function ocupacion(barbero, iso, excluirId) {
     });
   }
  
-  var hb = libro().getSheetByName(HOJA_BLOQUEOS);
-  if (hb && hb.getLastRow() > 1) {
-    hb.getRange(2, 1, hb.getLastRow() - 1, 5).getValues().forEach(function (f) {
-      if (aISO(f[1]) !== iso) return;
-      var quien = String(f[0]).trim();
-      if (quien && quien !== 'Todos' && quien !== barbero) return;
-      var bi = aMin(aHHMM(f[2])), bf = aMin(aHHMM(f[3]));
-      if (bi === null || bf === null || bf <= bi) return;
-      bloques.push({ ini: bi, fin: bf });
-    });
-  }
+  leerBloqueos_().forEach(function (b) {
+    if (b.fecha !== iso) return;
+    if (b.quien && b.quien !== 'Todos' && b.quien !== barbero) return;
+    var bi = aMin_(b.desde), bf = aMin_(b.hasta);
+    if (bi === null || bf === null || bf <= bi) return;
+    bloques.push({ ini: bi, fin: bf });
+  });
  
   // Eventos puestos a mano en Google Calendar (almuerzo, médico, lo que sea).
   // Los eventos creados por este sistema se ignoran: ya vienen de la hoja Reservas.
   if (USAR_CALENDARIO) {
-    var b = leerBarberos()[barbero];
-    if (b && b.calendario) {
-      try {
-        var cal = CalendarApp.getCalendarById(b.calendario);
-        if (cal) {
-          var desde = aFechaHora(iso, '00:00');
-          var hasta = new Date(desde.getTime() + 86400000);
-          cal.getEvents(desde, hasta).forEach(function (ev) {
-            if (ev.getTag('riif') === '1') return;
-            if (ev.isAllDayEvent()) { bloques.push({ ini: 0, fin: 1440 }); return; }
-            bloques.push({
-              ini: minutosDelDia(ev.getStartTime()),
-              fin: minutosDelDia(ev.getEndTime())
-            });
-          });
-        }
-      } catch (err) { /* si el calendario falla, la agenda sigue funcionando */ }
-    }
+    bloques = bloques.concat(_bloquesCalendarioManual_(barbero, iso));
   }
- 
+
+  return bloques;
+}
+
+/**
+ * Eventos puestos a mano en el Google Calendar del barbero ese día, como
+ * bloques {ini, fin}. Leer Calendar es lo más lento de todo el sistema, y
+ * ocupacion_() se llama muchas veces al buscar cupos: se guarda 5 minutos en
+ * caché. Las citas del sistema no entran aquí (vienen de Reservas), así que
+ * crear o mover una cita no necesita limpiar esta caché.
+ */
+function _bloquesCalendarioManual_(barbero, iso) {
+  var cache = CacheService.getScriptCache();
+  var clave = 'ocup|' + barbero + '|' + iso;
+  var guardado = cache.get(clave);
+  if (guardado) { try { return JSON.parse(guardado); } catch (e) {} }
+
+  var bloques = [];
+  var b = leerBarberos_()[barbero];
+  if (!b || !b.calendario) return bloques;
+  try {
+    var cal = CalendarApp.getCalendarById(b.calendario);
+    if (cal) {
+      var desde = aFechaHora_(iso, '00:00');
+      var hasta = new Date(desde.getTime() + 86400000);
+      cal.getEvents(desde, hasta).forEach(function (ev) {
+        if (ev.getTag('riif') === '1') return;
+        if (ev.isAllDayEvent()) { bloques.push({ ini: 0, fin: 1440 }); return; }
+        bloques.push({
+          ini: minutosDelDia_(ev.getStartTime()),
+          fin: minutosDelDia_(ev.getEndTime())
+        });
+      });
+    }
+  } catch (err) {
+    return bloques;   // si el calendario falla, la agenda sigue funcionando (y no se guarda en caché)
+  }
+  try { cache.put(clave, JSON.stringify(bloques), 300); } catch (e) {}
   return bloques;
 }
  
 // ---------- API para la página ----------
 function getDatosIniciales() {
-  var cfg = leerConfig();
-  var horarios = leerHorarios();
+  var cfg = leerConfig_();
+  var horarios = leerHorarios_();
   var dias = [];
   var base = new Date();
   for (var i = 0; i <= DIAS_ADELANTE; i++) {
@@ -488,11 +581,11 @@ function getDatosIniciales() {
  
 function getCupos(barbero, iso, duracion) {
   duracion = Number(duracion);
-  var horarios = leerHorarios();
-  var cfg = leerConfig();
-  var dia = diaSemana(iso);
-  var esHoy = (iso === hoyISO());
-  var corte = ahoraMin() + ANTICIPACION_H * 60;
+  var horarios = leerHorarios_();
+  var cfg = leerConfig_();
+  var dia = diaSemana_(iso);
+  var esHoy = (iso === hoyISO_());
+  var corte = ahoraMin_() + ANTICIPACION_H * 60;
  
   var candidatos = (barbero === '*')
     ? cfg.barberos.map(function (b) { return b.nombre; })
@@ -503,11 +596,11 @@ function getCupos(barbero, iso, duracion) {
   candidatos.forEach(function (nom) {
     var h = horarios[nom] && horarios[nom][dia];
     if (!h) return;
-    var a = aMin(h.abre), c = aMin(h.cierra);
+    var a = aMin_(h.abre), c = aMin_(h.cierra);
     abreMin = (abreMin === null) ? a : Math.min(abreMin, a);
     cierraMin = (cierraMin === null) ? c : Math.max(cierraMin, c);
  
-    var ocupado = ocupacion(nom, iso);
+    var ocupado = ocupacion_(nom, iso);
     for (var t = a; t + duracion <= c; t += PASO_MIN) {
       if (esHoy && t < corte) continue;
       var choca = ocupado.some(function (b) { return t < b.fin && (t + duracion) > b.ini; });
@@ -521,19 +614,19 @@ function getCupos(barbero, iso, duracion) {
   var cupos = Object.keys(mapa)
     .map(function (t) { return parseInt(t, 10); })
     .sort(function (x, y) { return x - y; })
-    .map(function (t) { return { hora: aTexto(t), barberos: mapa[t] }; });
+    .map(function (t) { return { hora: aTexto_(t), barberos: mapa[t] }; });
  
   var ocupados = [];
   if (barbero !== '*') {
-    ocupados = ocupacion(barbero, iso).map(function (b) {
-      return { ini: aTexto(Math.max(b.ini, 0)), fin: aTexto(Math.min(b.fin, 1439)) };
+    ocupados = ocupacion_(barbero, iso).map(function (b) {
+      return { ini: aTexto_(Math.max(b.ini, 0)), fin: aTexto_(Math.min(b.fin, 1439)) };
     });
   }
  
   return {
     cupos: cupos,
-    abre: abreMin === null ? '09:00' : aTexto(abreMin),
-    cierra: cierraMin === null ? '20:00' : aTexto(cierraMin),
+    abre: abreMin === null ? '09:00' : aTexto_(abreMin),
+    cierra: cierraMin === null ? '20:00' : aTexto_(cierraMin),
     ocupados: ocupados,
     cerrado: (abreMin === null)
   };
@@ -545,7 +638,7 @@ function crearReserva(d) {
   catch (err) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo en unos segundos.' }; }
  
   try {
-    var cfg = leerConfig();
+    var cfg = leerConfig_();
     var combo = _combinarServicios_(cfg, d.servicios || d.servicio);
     if (!combo.ok) return { ok: false, error: combo.error };
 
@@ -561,11 +654,11 @@ function crearReserva(d) {
     var asignado = cupo.barberos[0];
     if (cupo.barberos.length > 1) {
       var conteo = {};
-      cupo.barberos.forEach(function (n) { conteo[n] = ocupacion(n, d.fecha).length; });
+      cupo.barberos.forEach(function (n) { conteo[n] = ocupacion_(n, d.fecha).length; });
       asignado = cupo.barberos.slice().sort(function (a, b) { return conteo[a] - conteo[b]; })[0];
     }
 
-    var finTxt = aTexto(aMin(d.hora) + combo.duracion);
+    var finTxt = aTexto_(aMin_(d.hora) + combo.duracion);
     var id = nuevoIdCita_();
 
     var r = {
@@ -603,7 +696,7 @@ function _guardarCitaNueva_(r, opciones) {
   opciones = opciones || {};
   var correo = String(opciones.correoCliente || '').trim();
 
-  var h = libro().getSheetByName(HOJA_RESERVAS);
+  var h = libro_().getSheetByName(HOJA_RESERVAS);
   h.appendRow([
     r.id, new Date(), r.fecha, r.hora, r.fin, r.barbero, r.servicio,
     r.duracion, r.precio, r.nombre, r.telefono,
@@ -611,25 +704,23 @@ function _guardarCitaNueva_(r, opciones) {
   ]);
   var filaNueva = h.getLastRow();
 
-  var idEvento = crearEvento(r);
+  var idEvento = crearEvento_(r);
   if (idEvento) h.getRange(filaNueva, COL_EVENTO).setValue(idEvento);
 
-  var link = linkAvisoBarbero(r);
+  var link = linkAvisoBarbero_(r);
   if (link) {
     h.getRange(filaNueva, COL_AVISO)
      .setFormula('=HYPERLINK("' + link + '";"Avisar a ' + r.barbero + '")');
   }
 
-  enviarCorreos(r, correo);
-  notificarBarbero(r, 'nueva');
-  // Ya estamos dentro del candado de crearReserva / crearCitaDashboard:
-  // usar la versión sin candado para no bloquearnos a nosotros mismos.
-  try { volcarAutomatico_(); } catch (e) {}
+  // Correos, Telegram y el paso al Registro van DESPUÉS de responder (ver
+  // procesarPendientes): quien crea la cita no tiene que esperarlos.
+  _encolar_({ k: 'nueva', r: r, correo: correo });
 
   return {
     ok: true,
     reserva: r,
-    whatsapp: whatsappDestino(r.barbero),
+    whatsapp: whatsappDestino_(r.barbero),
     destino: WHATSAPP_DESTINO
   };
 }
@@ -638,7 +729,7 @@ function cancelarReserva(id) {
   var lock = LockService.getScriptLock();
   try { lock.waitLock(20000); } catch (e) { return { ok: false, error: 'Intenta de nuevo.' }; }
   try {
-    var h = libro().getSheetByName(HOJA_RESERVAS);
+    var h = libro_().getSheetByName(HOJA_RESERVAS);
     if (!h || h.getLastRow() < 2) return { ok: false, error: 'No encontramos esa cita.' };
     var datos = h.getRange(2, 1, h.getLastRow() - 1, COL_EVENTO).getValues();
  
@@ -650,15 +741,15 @@ function cancelarReserva(id) {
       h.getRange(i + 2, 13).setValue('Cancelada');
  
       var r = {
-        id: datos[i][0], fecha: aISO(datos[i][2]), hora: aHHMM(datos[i][3]),
-        fin: aHHMM(datos[i][4]), barbero: String(datos[i][5]).trim(),
+        id: datos[i][0], fecha: aISO_(datos[i][2]), hora: aHHMM_(datos[i][3]),
+        fin: aHHMM_(datos[i][4]), barbero: String(datos[i][5]).trim(),
         servicio: datos[i][6], duracion: Number(datos[i][7]) || 0, precio: datos[i][8],
         nombre: datos[i][9], telefono: datos[i][10], notas: datos[i][13]
       };
  
-      borrarEvento(r.barbero, String(datos[i][14] || '').trim());
-      notificarBarbero(r, 'cancelada');
-      try { sincronizarCancelaciones(); } catch(e) {}
+      borrarEvento_(r.barbero, String(datos[i][14] || '').trim());
+      // Aviso y sincronización del Registro, después de responder.
+      _encolar_({ k: 'aviso', r: r, tipo: 'cancelada' });
  
       return { ok: true, reserva: r };
     }
@@ -669,13 +760,13 @@ function cancelarReserva(id) {
 }
  
 function verReserva(id) {
-  var h = libro().getSheetByName(HOJA_RESERVAS);
+  var h = libro_().getSheetByName(HOJA_RESERVAS);
   if (!h || h.getLastRow() < 2) return null;
   var datos = h.getRange(2, 1, h.getLastRow() - 1, 14).getValues();
   for (var i = 0; i < datos.length; i++) {
     if (String(datos[i][0]).trim() === String(id).trim()) {
       return {
-        id: datos[i][0], fecha: aISO(datos[i][2]), hora: aHHMM(datos[i][3]),
+        id: datos[i][0], fecha: aISO_(datos[i][2]), hora: aHHMM_(datos[i][3]),
         barbero: datos[i][5], servicio: datos[i][6], nombre: datos[i][9],
         estado: datos[i][12]
       };
@@ -686,21 +777,21 @@ function verReserva(id) {
  
 // ==================== GOOGLE CALENDAR ====================
  
-function calendarioDe(nombreBarbero) {
+function calendarioDe_(nombreBarbero) {
   if (!USAR_CALENDARIO) return null;
-  var b = leerBarberos()[nombreBarbero];
+  var b = leerBarberos_()[nombreBarbero];
   if (!b || !b.calendario) return null;
   try { return CalendarApp.getCalendarById(b.calendario); } catch (e) { return null; }
 }
  
-function crearEvento(r) {
+function crearEvento_(r) {
   if (!USAR_CALENDARIO) return '';
   try {
-    var cal = calendarioDe(r.barbero);
+    var cal = calendarioDe_(r.barbero);
     if (!cal) return '';
  
-    var b = leerBarberos()[r.barbero] || {};
-    var inicio = aFechaHora(r.fecha, r.hora);
+    var b = leerBarberos_()[r.barbero] || {};
+    var inicio = aFechaHora_(r.fecha, r.hora);
     var fin = new Date(inicio.getTime() + r.duracion * 60000);
  
     var desc =
@@ -709,12 +800,12 @@ function crearEvento(r) {
         ? 'Teléfono: ' + r.telefono + '\n' +
           'Escribirle: https://wa.me/57' + String(r.telefono).replace(/^57/, '') + '\n'
         : '') +
-      'Servicio: ' + r.servicio + ' (' + duracionTexto(r.duracion) + ')\n' +
-      'Valor: ' + pesos(r.precio) + '\n' +
+      'Servicio: ' + r.servicio + ' (' + duracionTexto_(r.duracion) + ')\n' +
+      'Valor: ' + pesos_(r.precio) + '\n' +
       (r.notas ? 'Notas: ' + r.notas + '\n' : '') +
       'Código: ' + r.id + '\n\n' +
       '— — —\n' +
-      '✅ Cerrar este servicio:\n' + linkCierre(r.id);
+      '✅ Cerrar este servicio:\n' + linkCierre_(r.id);
  
     var opciones = { description: desc, location: DIRECCION };
     if (b.correo && b.notificar) {
@@ -729,7 +820,7 @@ function crearEvento(r) {
     var ids = ev.getId();
  
     // Copia en el calendario general, sin invitados para no duplicar correos
-    var gen = calendarioGeneral();
+    var gen = calendarioGeneral_();
     if (gen) {
       var evg = gen.createEvent(r.barbero + ' · ' + r.servicio + ' — ' + r.nombre,
                                 inicio, fin, { description: desc, location: DIRECCION });
@@ -746,10 +837,10 @@ function crearEvento(r) {
   }
 }
  
-function borrarEvento(nombreBarbero, idEvento) {
+function borrarEvento_(nombreBarbero, idEvento) {
   if (!USAR_CALENDARIO || !idEvento) return;
   var partes = String(idEvento).split('|');
-  var cals = [calendarioDe(nombreBarbero), calendarioGeneral()];
+  var cals = [calendarioDe_(nombreBarbero), calendarioGeneral_()];
   for (var i = 0; i < partes.length; i++) {
     if (!partes[i] || !cals[i]) continue;
     try {
@@ -763,12 +854,12 @@ function borrarEvento(nombreBarbero, idEvento) {
  * Marca en Google Calendar que un servicio ya se cerró: cambia el color, le
  * pone un prefijo al título y reemplaza el bloque del link al Form por una
  * línea con el resultado. Recorre los dos eventos (calendario del barbero y
- * calendario general) igual que borrarEvento.
+ * calendario general) igual que borrarEvento_.
  *
  * Si Calendar falla no pasa nada: el cierre ya quedó guardado en la hoja.
  *
  * @param {string} nombreBarbero
- * @param {string} idEvento - "idBarbero|idGeneral" tal como lo guarda crearEvento
+ * @param {string} idEvento - "idBarbero|idGeneral" tal como lo guarda crearEvento_
  * @param {string} estado   - Atendido / No asistió / Cancelado
  * @param {string} resumen  - texto corto con servicio, total, método y propina
  */
@@ -780,7 +871,7 @@ function marcarEventoCerrado_(nombreBarbero, idEvento, estado, resumen) {
   var color = atendido ? CalendarApp.EventColor.GREEN : CalendarApp.EventColor.GRAY;
 
   var partes = String(idEvento).split('|');
-  var cals = [calendarioDe(nombreBarbero), calendarioGeneral()];
+  var cals = [calendarioDe_(nombreBarbero), calendarioGeneral_()];
 
   for (var i = 0; i < partes.length; i++) {
     if (!partes[i] || !cals[i]) continue;
@@ -805,13 +896,17 @@ function marcarEventoCerrado_(nombreBarbero, idEvento, estado, resumen) {
  
 // ==================== NOTIFICACIONES ====================
  
-function notificarBarbero(r, tipo) {
-  var b = leerBarberos()[r.barbero];
+function notificarBarbero_(r, tipo) {
+  // Telegram: al barbero (si se conectó) y a los dueños. Es opt-in por sí
+  // mismo, así que no depende de la columna "Notificar" (esa es del correo).
+  try { _tgAvisarCita_(r, tipo); } catch (e) { console.error('telegram: ' + e); }
+
+  var b = leerBarberos_()[r.barbero];
   if (!b || !b.notificar) return;
  
   var esNueva  = (tipo === 'nueva');
   var esModif  = (tipo === 'modificada');
-  var cuando = textoFecha(r.fecha) + ' a las ' + r.hora;
+  var cuando = textoFecha_(r.fecha) + ' a las ' + r.hora;
   var titulo = esNueva ? 'Nueva cita: ' + cuando
              : esModif ? 'Cita cambiada: ' + cuando
              : 'CANCELADA: ' + cuando;
@@ -822,13 +917,13 @@ function notificarBarbero(r, tipo) {
   var cuerpo =
     intro + '\n\n' +
     'Cuándo: ' + cuando + ' (' + r.hora + ' a ' + r.fin + ')\n' +
-    'Servicio: ' + r.servicio + ' · ' + duracionTexto(r.duracion) + '\n' +
+    'Servicio: ' + r.servicio + ' · ' + duracionTexto_(r.duracion) + '\n' +
     'Cliente: ' + r.nombre + '\n' +
     (MOSTRAR_TELEFONO_A_BARBERO && r.telefono
       ? 'Teléfono: ' + r.telefono + '\n' +
         'Escribirle: https://wa.me/57' + String(r.telefono).replace(/^57/, '') + '\n'
       : '') +
-    'Valor: ' + pesos(r.precio) + '\n' +
+    'Valor: ' + pesos_(r.precio) + '\n' +
     (r.notas ? 'Notas: ' + r.notas + '\n' : '') +
     '\nCódigo: ' + r.id;
  
@@ -838,14 +933,14 @@ function notificarBarbero(r, tipo) {
  
   var etiqWa = esNueva ? 'NUEVA CITA' : esModif ? 'CITA CAMBIADA' : 'CITA CANCELADA';
   if (USAR_WHATSAPP && b.whatsapp && b.apikey) {
-    enviarWhatsApp(b.whatsapp, b.apikey,
+    enviarWhatsApp_(b.whatsapp, b.apikey,
       etiqWa + '\n' +
       cuando + '\n' + r.servicio + '\n' +
-      r.nombre + (r.telefono ? ' — ' + r.telefono : '') + '\n' + pesos(r.precio));
+      r.nombre + (r.telefono ? ' — ' + r.telefono : '') + '\n' + pesos_(r.precio));
   }
 
   if (USAR_WHATSAPP && WHATSAPP && WA_APIKEY_DUENO) {
-    enviarWhatsApp(WHATSAPP, WA_APIKEY_DUENO,
+    enviarWhatsApp_(WHATSAPP, WA_APIKEY_DUENO,
       (esNueva ? 'Nueva cita' : esModif ? 'Cita cambiada' : 'Cita cancelada') + ' · ' + r.barbero + '\n' +
       cuando + ' · ' + r.servicio + '\n' + r.nombre + (r.telefono ? ' — ' + r.telefono : ''));
   }
@@ -856,18 +951,18 @@ function notificarBarbero(r, tipo) {
  * que lo abre ya escrito. Un toque tuyo y sale. El barbero se entera por ti,
  * no por el cliente.
  */
-function linkAvisoBarbero(r) {
-  var b = leerBarberos()[r.barbero];
+function linkAvisoBarbero_(r) {
+  var b = leerBarberos_()[r.barbero];
   if (!b || !b.whatsapp || b.whatsapp.length < 10) return '';
  
   var texto =
     r.barbero + ', te agendé una cita.\n\n' +
     r.servicio + '\n' +
-    textoFecha(r.fecha) + '\n' +
-    r.hora + ' a ' + r.fin + ' (' + duracionTexto(r.duracion) + ')\n' +
+    textoFecha_(r.fecha) + '\n' +
+    r.hora + ' a ' + r.fin + ' (' + duracionTexto_(r.duracion) + ')\n' +
     'Cliente: ' + r.nombre + '\n' +
     (MOSTRAR_TELEFONO_A_BARBERO && r.telefono ? 'Teléfono: ' + r.telefono + '\n' : '') +
-    'Valor: ' + pesos(r.precio) + '\n' +
+    'Valor: ' + pesos_(r.precio) + '\n' +
     (r.notas ? 'Nota: ' + r.notas + '\n' : '') +
     'Código: ' + r.id;
  
@@ -878,7 +973,7 @@ function linkAvisoBarbero(r) {
  * Construye el link del form de cierre con el código de la cita prellenado.
  * El barbero lo toca desde el evento de Calendar y solo marca estado y método.
  */
-function linkCierre(id) {
+function linkCierre_(id) {
   return FORM_CIERRE_URL + '?' +
     FORM_ENTRY_CODIGO + '=' + encodeURIComponent(id) + '&' +
     FORM_ENTRY_ESTADO + '=Atendido&' +
@@ -890,9 +985,9 @@ function linkCierre(id) {
  * Si se pidió 'barbero' pero ese barbero no tiene número cargado en la hoja
  * Barberos, cae al número del negocio en vez de dejar el botón roto.
  */
-function whatsappDestino(nombreBarbero) {
+function whatsappDestino_(nombreBarbero) {
   if (WHATSAPP_DESTINO === 'barbero') {
-    var b = leerBarberos()[nombreBarbero];
+    var b = leerBarberos_()[nombreBarbero];
     if (b && b.whatsapp && b.whatsapp.length >= 10) return b.whatsapp;
   }
   return WHATSAPP;
@@ -903,7 +998,7 @@ function whatsappDestino(nombreBarbero) {
  * Servicio gratuito de terceros. Cada destinatario lo activa una vez.
  * Si falla, el correo y el calendario siguen llegando igual.
  */
-function enviarWhatsApp(numero, apikey, texto) {
+function enviarWhatsApp_(numero, apikey, texto) {
   try {
     var url = 'https://api.callmebot.com/whatsapp.php?phone=' + encodeURIComponent(numero) +
               '&text=' + encodeURIComponent(texto) +
@@ -912,8 +1007,8 @@ function enviarWhatsApp(numero, apikey, texto) {
   } catch (e) { console.error('WhatsApp: ' + e.message); }
 }
  
-function enviarCorreos(r, emailCliente) {
-  var fechaTxt = textoFecha(r.fecha);
+function enviarCorreos_(r, emailCliente) {
+  var fechaTxt = textoFecha_(r.fecha);
  
   if (emailCliente && emailCliente.indexOf('@') > 0) {
     var url = ScriptApp.getService().getUrl() + '?c=' + r.id;
@@ -923,7 +1018,7 @@ function enviarCorreos(r, emailCliente) {
       'Servicio: ' + r.servicio + '\n' +
       'Cuándo: ' + fechaTxt + ' a las ' + r.hora + '\n' +
       'Con: ' + r.barbero + '\n' +
-      'Valor: ' + pesos(r.precio) + '\n' +
+      'Valor: ' + pesos_(r.precio) + '\n' +
       'Dónde: ' + DIRECCION + '\n\n' +
       'Código de tu cita: ' + r.id + '\n' +
       'Si no puedes venir, cancela aquí y le damos el cupo a alguien más:\n' + url + '\n\n' +
@@ -935,9 +1030,9 @@ function enviarCorreos(r, emailCliente) {
  
   if (EMAIL_AVISO && EMAIL_AVISO.indexOf('@') > 0) {
     try {
-      var link = linkAvisoBarbero(r);
+      var link = linkAvisoBarbero_(r);
       MailApp.sendEmail(EMAIL_AVISO, 'Nueva cita: ' + fechaTxt + ' ' + r.hora + ' — ' + r.barbero,
-        r.nombre + ' (' + r.telefono + ')\n' + r.servicio + ' · ' + pesos(r.precio) + '\n' +
+        r.nombre + ' (' + r.telefono + ')\n' + r.servicio + ' · ' + pesos_(r.precio) + '\n' +
         fechaTxt + ' ' + r.hora + '–' + r.fin + '\nCon ' + r.barbero + '\nCódigo: ' + r.id +
         (link ? '\n\n— — —\nAvisarle a ' + r.barbero + ' por WhatsApp (abre el chat con el ' +
                 'mensaje ya escrito, solo le das enviar):\n' + link : ''));
@@ -945,13 +1040,365 @@ function enviarCorreos(r, emailCliente) {
   }
 }
  
-function textoFecha(iso) {
+function textoFecha_(iso) {
   var meses = ['enero','febrero','marzo','abril','mayo','junio','julio',
                'agosto','septiembre','octubre','noviembre','diciembre'];
   var p = iso.split('-');
-  return diaSemana(iso) + ' ' + parseInt(p[2],10) + ' de ' + meses[parseInt(p[1],10) - 1];
+  return diaSemana_(iso) + ' ' + parseInt(p[2],10) + ' de ' + meses[parseInt(p[1],10) - 1];
 }
  
+// ==================== TELEGRAM (avisos a barberos y dueño) ====================
+//
+// Gratis y oficial. Cómo se arma:
+//  1. En Telegram, @BotFather → /newbot → te da un TOKEN.
+//  2. En la hoja: menú RIIF → "Configurar Telegram" → pegas el token. Se
+//     guarda en las Propiedades del script (NO en el código, así no llega a
+//     git ni a GitHub).
+//  3. Cada barbero (y el dueño), en el dashboard: botón "Telegram" →
+//     "Conectar" → en Telegram toca "Iniciar". Queda enlazado a su nombre.
+//
+// Qué manda: cita nueva / cambiada / cancelada (al barbero, y al dueño la de
+// todos) y un recordatorio ~1 hora antes de cada cita (al barbero).
+// Se usa getUpdates (no webhook): el /exec de Apps Script responde con una
+// redirección que Telegram toma como error y reintentaría sin parar.
+
+var TG_PROP_TOKEN  = 'TG_TOKEN';
+var TG_PROP_BOT    = 'TG_BOT_USUARIO';
+var TG_PROP_CHATS  = 'TG_CHATS';      // JSON { "Nombre": chatId }
+var TG_PROP_OFFSET = 'TG_OFFSET';
+var TG_PROP_RECORD = 'TG_RECORDADAS'; // JSON { "yyyy-MM-dd": [ids] }
+var TG_PROP_LOG    = 'TG_ULTIMOS';    // últimos mensajes recibidos (para el diagnóstico)
+var TG_RECORDATORIO_MIN = 60;         // minutos antes de la cita
+
+function _tgToken_() {
+  return PropertiesService.getScriptProperties().getProperty(TG_PROP_TOKEN) || '';
+}
+function _tgActivo_() { return !!_tgToken_(); }
+
+/** Llama a la API de Telegram. Devuelve el `result` o null si falló. */
+function _tgApi_(metodo, payload) {
+  var token = _tgToken_();
+  if (!token) return null;
+  try {
+    var resp = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/' + metodo, {
+      method: 'post', contentType: 'application/json',
+      payload: JSON.stringify(payload || {}), muteHttpExceptions: true
+    });
+    var j = JSON.parse(resp.getContentText());
+    if (!j.ok) { console.error('Telegram ' + metodo + ': ' + j.description); return null; }
+    return j.result;
+  } catch (e) {
+    console.error('Telegram ' + metodo + ': ' + e.message);
+    return null;
+  }
+}
+
+function _tgEsc_(t) {
+  return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Envía un mensaje (HTML de Telegram). Nunca lanza: un aviso caído no tumba la cita. */
+function _tgEnviar_(chatId, html) {
+  if (!chatId) return false;
+  return !!_tgApi_('sendMessage', { chat_id: chatId, text: html, parse_mode: 'HTML',
+                                    disable_web_page_preview: true });
+}
+
+function _tgChats_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(TG_PROP_CHATS) || '{}'); }
+  catch (e) { return {}; }
+}
+function _tgGuardarChats_(m) {
+  PropertiesService.getScriptProperties().setProperty(TG_PROP_CHATS, JSON.stringify(m));
+}
+
+/** Nombres con rol Dueño que tienen Telegram conectado. */
+function _tgDuenos_() {
+  var chats = _tgChats_(), bs = leerBarberos_(), out = [];
+  Object.keys(chats).forEach(function (n) {
+    if (bs[n] && /due|admin|jefe|propietar|owner/i.test(String(bs[n].rol || ''))) out.push(n);
+  });
+  return out;
+}
+
+/** Menú: pide el token de @BotFather, lo valida y lo guarda. */
+function configurarTelegram() {
+  _soloDesdeLaHoja_();
+  var ui = SpreadsheetApp.getUi();
+  var r = ui.prompt('Configurar Telegram',
+    'Pega el token que te dio @BotFather (se ve como 123456789:ABC-def...).\n' +
+    'Deja vacío y acepta para desactivar Telegram.', ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var token = r.getResponseText().trim();
+  var props = PropertiesService.getScriptProperties();
+  if (!token) {
+    props.deleteProperty(TG_PROP_TOKEN);
+    props.deleteProperty(TG_PROP_BOT);
+    ui.alert('Telegram desactivado.');
+    return;
+  }
+  var tokenViejo = props.getProperty(TG_PROP_TOKEN) || '';
+  var botViejo = props.getProperty(TG_PROP_BOT) || '';
+  props.setProperty(TG_PROP_TOKEN, token);
+  var yo = _tgApi_('getMe', {});
+  if (!yo || !yo.username) {
+    // Se deja como estaba: un token mal copiado no debe apagar el que servía.
+    if (tokenViejo) props.setProperty(TG_PROP_TOKEN, tokenViejo); else props.deleteProperty(TG_PROP_TOKEN);
+    ui.alert('Ese token no funciona. Cópialo otra vez de @BotFather (completo, sin espacios).');
+    return;
+  }
+  // Bot distinto al anterior: su numeración de mensajes empieza de nuevo y
+  // las personas tienen que tocar "Iniciar" en ESTE bot. Si se dejaba el
+  // contador del bot viejo, el sistema ignoraba todo lo que llegaba al nuevo.
+  var cambioDeBot = botViejo !== yo.username;
+  if (cambioDeBot) {
+    props.deleteProperty(TG_PROP_OFFSET);
+    props.deleteProperty(TG_PROP_CHATS);
+    props.deleteProperty(TG_PROP_RECORD);
+    props.deleteProperty(TG_PROP_LOG);
+  }
+  // getUpdates no funciona si el bot tiene un webhook puesto (p. ej. por
+  // haberlo probado en otra herramienta): se quita por si acaso.
+  _tgApi_('deleteWebhook', { drop_pending_updates: false });
+  props.setProperty(TG_PROP_BOT, yo.username);
+  ui.alert('Telegram listo: @' + yo.username + '\n\n' +
+    (cambioDeBot && botViejo ? 'Cambiaste de bot (antes @' + botViejo + '): cada persona debe conectarse de nuevo.\n\n' : '') +
+    'Ahora cada barbero entra al Dashboard → botón 📲 → "Conectar".');
+}
+
+/** Menú: muestra el estado de Telegram para encontrar qué falla. */
+function diagnosticoTelegram() {
+  _soloDesdeLaHoja_();
+  var ui = SpreadsheetApp.getUi();
+  if (!_tgActivo_()) { ui.alert('Telegram no está configurado: corre "Configurar Telegram" y pega el token.'); return; }
+  var props = PropertiesService.getScriptProperties();
+  var yo = _tgApi_('getMe', {});
+  var hook = _tgApi_('getWebhookInfo', {}) || {};
+  var conectados = _tgProcesarUpdates_();
+  var chats = _tgChats_();
+  var log = [];
+  try { log = JSON.parse(props.getProperty(TG_PROP_LOG) || '[]'); } catch (e) {}
+  ui.alert('Diagnóstico de Telegram',
+    'Bot: ' + (yo ? '@' + yo.username + ' ✅' : '❌ el token no responde (vuelve a configurarlo)') + '\n' +
+    'Webhook: ' + (hook.url ? '⚠️ tiene uno puesto (' + hook.url + ') — corre "Configurar Telegram" otra vez' : 'ninguno ✅') + '\n' +
+    'Mensajes sin leer en Telegram: ' + (hook.pending_update_count || 0) + '\n' +
+    (hook.last_error_message ? 'Último error de Telegram: ' + hook.last_error_message + '\n' : '') +
+    (conectados.length ? 'Se acaban de conectar: ' + conectados.join(', ') + '\n' : '') +
+    '\nConectados (' + Object.keys(chats).length + '): ' + (Object.keys(chats).join(', ') || 'nadie todavía') + '\n' +
+    '\nÚltimos mensajes que recibió el bot:\n' +
+    (log.length ? log.map(function (x) { return '· ' + x.h + ' — "' + x.t + '" → ' + x.r; }).join('\n')
+                : '· ninguno todavía (el bot no ha recibido nada)') + '\n\n' +
+    'Para conectar a alguien: Dashboard → 📲 → abrir el bot → escribirle el código de 6 números → "Ya le envié el código".',
+    ui.ButtonSet.OK);
+}
+
+/**
+ * Lee los mensajes nuevos que le llegaron al bot. El único que importa es
+ * "/start CODIGO" (viene del link del dashboard): enlaza ese chat con el
+ * nombre del barbero dueño del código.
+ * @returns {Array} nombres que se conectaron en esta pasada
+ */
+function _tgProcesarUpdates_() {
+  if (!_tgActivo_()) return [];
+  var props = PropertiesService.getScriptProperties();
+  var offset = Number(props.getProperty(TG_PROP_OFFSET)) || 0;
+  var ups = _tgApi_('getUpdates', { offset: offset, timeout: 0, allowed_updates: ['message'] });
+  if (!ups || !ups.length) return [];
+
+  var cache = CacheService.getScriptCache();
+  var chats = _tgChats_(), conectados = [], cambio = false;
+  var log = [];
+  try { log = JSON.parse(props.getProperty(TG_PROP_LOG) || '[]'); } catch (e) {}
+  function anotar(texto, resultado) {
+    log.unshift({ t: String(texto || '').slice(0, 40), r: resultado,
+                  h: Utilities.formatDate(new Date(), TZ, 'dd/MM HH:mm') });
+    log = log.slice(0, 5);
+  }
+
+  ups.forEach(function (u) {
+    offset = Math.max(offset, u.update_id + 1);
+    var m = u.message;
+    if (!m || !m.chat) return;
+    if (!m.text) { anotar('(sin texto)', 'ignorado'); return; }
+    var t = String(m.text).trim();
+    // Dos formas de conectarse: "/start CODIGO" (botón Conectar) o escribirle
+    // al bot el código de 6 números que muestra el dashboard.
+    var codigo = '';
+    if (t.indexOf('/start') === 0) codigo = (t.split(/\s+/)[1] || '');
+    else if (/^\d{6}$/.test(t.replace(/\s/g, ''))) codigo = t.replace(/\s/g, '');
+    var nombre = codigo ? cache.get('tgcode_' + codigo) : null;
+    if (!nombre) {
+      anotar(t, codigo ? 'código vencido o equivocado' : 'sin código');
+      _tgEnviar_(m.chat.id, 'Hola 👋 Este bot envía los avisos de ' + _tgEsc_(NEGOCIO) + '.\n\n' +
+        'Para conectarte: dashboard → botón <b>📲</b> → escríbeme aquí el <b>código de 6 números</b> que te muestra ' +
+        '(vence a los 30 minutos).');
+      return;
+    }
+    anotar(t, 'conectado: ' + nombre);
+    cache.remove('tgcode_' + codigo);
+    chats[nombre] = m.chat.id;
+    cambio = true;
+    conectados.push(nombre);
+    _tgEnviar_(m.chat.id, '✅ Listo, <b>' + _tgEsc_(nombre) + '</b>. Aquí te van a llegar las citas nuevas, ' +
+      'los cambios y un recordatorio 1 hora antes de cada cita.');
+  });
+  props.setProperty(TG_PROP_OFFSET, String(offset));
+  props.setProperty(TG_PROP_LOG, JSON.stringify(log));
+  if (cambio) _tgGuardarChats_(chats);
+  return conectados;
+}
+
+/** Texto de una cita para Telegram. */
+function _tgTextoCita_(r, conBarbero) {
+  return _tgEsc_(textoFecha_(r.fecha)) + ' · <b>' + _tgEsc_(r.hora) + (r.fin ? '–' + _tgEsc_(r.fin) : '') + '</b>\n' +
+    _tgEsc_(r.servicio) + '\n' +
+    '👤 ' + _tgEsc_(r.nombre || 'Sin nombre') +
+    (MOSTRAR_TELEFONO_A_BARBERO && r.telefono ? ' · ' + _tgEsc_(r.telefono) : '') + '\n' +
+    (conBarbero ? '✂️ ' + _tgEsc_(r.barbero) + '\n' : '') +
+    '💵 ' + _tgEsc_(pesos_(r.precio)) +
+    (r.notas ? '\n📝 ' + _tgEsc_(r.notas) : '');
+}
+
+/** Aviso de cita nueva / modificada / cancelada: al barbero y a los dueños. */
+function _tgAvisarCita_(r, tipo) {
+  if (!_tgActivo_()) return;
+  var titulo = tipo === 'nueva' ? '🆕 <b>Nueva cita</b>'
+             : tipo === 'modificada' ? '✏️ <b>Cita cambiada</b>'
+             : '❌ <b>Cita cancelada</b>';
+  var chats = _tgChats_();
+  var enviados = {};
+  if (chats[r.barbero]) {
+    _tgEnviar_(chats[r.barbero], titulo + '\n' + _tgTextoCita_(r, false));
+    enviados[chats[r.barbero]] = 1;
+  }
+  _tgDuenos_().forEach(function (n) {
+    var id = chats[n];
+    if (!id || enviados[id]) return;
+    _tgEnviar_(id, titulo + '\n' + _tgTextoCita_(r, true));
+    enviados[id] = 1;
+  });
+}
+
+/**
+ * Recordatorio ~1 hora antes (lo llama la rutina de 15 min): citas
+ * Confirmadas de hoy que empiezan dentro de los próximos TG_RECORDATORIO_MIN
+ * minutos, que no se hayan cerrado ni recordado ya. No se recuerda una cita
+ * creada hace menos de una hora (el aviso de "nueva" basta).
+ */
+function _tgRecordatorios_() {
+  if (!_tgActivo_()) return 0;
+  var chats = _tgChats_();
+  if (!Object.keys(chats).length) return 0;
+  var hr = libro_().getSheetByName(HOJA_RESERVAS);
+  if (!hr || hr.getLastRow() < 2) return 0;
+
+  var props = PropertiesService.getScriptProperties();
+  var hoy = hoyISO_();
+  var hechas = {};
+  try { hechas = JSON.parse(props.getProperty(TG_PROP_RECORD) || '{}'); } catch (e) {}
+  var yaHoy = hechas[hoy] || [];
+  var ahora = ahoraMin_();
+  var estados = null;
+  var n = 0;
+
+  hr.getRange(2, 1, hr.getLastRow() - 1, 14).getValues().forEach(function (f) {
+    var id = String(f[0]).trim();
+    if (!id || aISO_(f[2]) !== hoy || String(f[12]).trim() !== 'Confirmada') return;
+    if (yaHoy.indexOf(id) >= 0) return;
+    var barbero = String(f[5]).trim();
+    if (!chats[barbero]) return;
+    var ini = aMin_(aHHMM_(f[3]));
+    if (ini === null) return;
+    var falta = ini - ahora;
+    if (falta <= 0 || falta > TG_RECORDATORIO_MIN) return;
+    var creada = f[1] instanceof Date ? f[1].getTime() : 0;
+    if (creada && Date.now() - creada < TG_RECORDATORIO_MIN * 60000) { yaHoy.push(id); return; }
+    if (!estados) estados = _estadosRegistroPorId_();
+    var est = estados[id] || '';
+    if (est === 'Atendido' || est === 'No asistió' || est === 'Cancelado') return;
+
+    var r = { id: id, fecha: hoy, hora: aHHMM_(f[3]), fin: aHHMM_(f[4]), barbero: barbero,
+              servicio: String(f[6]).trim(), precio: Number(f[8]) || 0,
+              nombre: String(f[9]).trim(), telefono: String(f[10]).trim(), notas: String(f[13]).trim() };
+    if (_tgEnviar_(chats[barbero], '⏰ <b>En ' + falta + ' min</b>\n' + _tgTextoCita_(r, false))) {
+      yaHoy.push(id);
+      n++;
+    }
+  });
+
+  // Solo se guarda el día de hoy (lo viejo se descarta solo).
+  var nuevo = {}; nuevo[hoy] = yaHoy;
+  props.setProperty(TG_PROP_RECORD, JSON.stringify(nuevo));
+  return n;
+}
+
+/**
+ * Limpieza al dejar Google Calendar: borra los eventos FUTUROS que creó este
+ * sistema (etiqueta riif) en el calendario de cada barbero y en el general, y
+ * vacía la columna "ID Evento" de esas citas en Reservas. Los eventos puestos
+ * a mano y los pasados no se tocan. Funciona aunque USAR_CALENDARIO esté en
+ * false (lee los IDs de calendario de la hoja Barberos directamente).
+ */
+function quitarCitasDeGoogleCalendar() {
+  _soloDesdeLaHoja_();
+  var ui = SpreadsheetApp.getUi();
+  var bs = leerBarberos_();
+  var ahora = new Date();
+  var hasta = new Date(ahora.getTime() + 400 * 86400000);
+
+  var porBorrar = [], calendarios = [];
+  Object.keys(bs).forEach(function (n) {
+    var idCal = bs[n] && bs[n].calendario;
+    if (!idCal) return;
+    var cal = null;
+    try { cal = CalendarApp.getCalendarById(idCal); } catch (e) {}
+    if (!cal) return;
+    var evs = cal.getEvents(ahora, hasta).filter(function (ev) { return ev.getTag('riif') === '1'; });
+    if (evs.length) calendarios.push(n + ': ' + evs.length);
+    porBorrar = porBorrar.concat(evs);
+  });
+
+  if (!porBorrar.length) { ui.alert('No hay citas futuras del sistema en Google Calendar. Nada que borrar.'); return; }
+  var r = ui.alert('Quitar citas de Google Calendar',
+    'Se van a borrar ' + porBorrar.length + ' evento(s) futuros que creó el sistema:\n' + calendarios.join('\n') +
+    '\n\nLos eventos que ustedes pusieron a mano NO se tocan. Las citas siguen en la hoja y en el dashboard.\n\n¿Continuar?',
+    ui.ButtonSet.YES_NO);
+  if (r !== ui.Button.YES) return;
+
+  var n = 0;
+  porBorrar.forEach(function (ev) { try { ev.deleteEvent(); n++; } catch (e) {} });
+
+  // Vaciar "ID Evento" de las citas futuras: ya no apuntan a nada.
+  var hr = libro_().getSheetByName(HOJA_RESERVAS);
+  if (hr && hr.getLastRow() >= 2) {
+    var hoy = hoyISO_();
+    var rango = hr.getRange(2, 1, hr.getLastRow() - 1, COL_EVENTO);
+    var datos = rango.getValues(), cambio = false;
+    datos.forEach(function (f) {
+      if (f[COL_EVENTO - 1] && aISO_(f[2]) >= hoy) { f[COL_EVENTO - 1] = ''; cambio = true; }
+    });
+    if (cambio) hr.getRange(2, COL_EVENTO, datos.length, 1).setValues(datos.map(function (f) { return [f[COL_EVENTO - 1]]; }));
+  }
+  ui.alert('Listo: se borraron ' + n + ' evento(s) de Google Calendar.' +
+    (USAR_CALENDARIO ? '\n\nOjo: USAR_CALENDARIO sigue en true en el código; ponlo en false para que no se creen más.' : ''));
+}
+
+/** Menú: manda un mensaje de prueba a todos los conectados. */
+function probarTelegram() {
+  _soloDesdeLaHoja_();
+  var ui = SpreadsheetApp.getUi();
+  if (!_tgActivo_()) { ui.alert('Primero corre "Configurar Telegram".'); return; }
+  _tgProcesarUpdates_();
+  var chats = _tgChats_(), nombres = Object.keys(chats), ok = [];
+  nombres.forEach(function (n) {
+    if (_tgEnviar_(chats[n], '🔔 Prueba de avisos de ' + _tgEsc_(NEGOCIO) + ': funciona.')) ok.push(n);
+  });
+  ui.alert(nombres.length
+    ? 'Mensaje de prueba enviado a: ' + (ok.join(', ') || 'nadie') +
+      (ok.length < nombres.length ? '\n\nNo llegó a: ' + nombres.filter(function (n) { return ok.indexOf(n) < 0; }).join(', ') : '')
+    : 'Nadie ha conectado Telegram todavía. Cada uno lo hace desde el Dashboard → botón "Telegram".');
+}
+
 // ==================== INSTALACIÓN Y ACTUALIZACIÓN ====================
  
 /**
@@ -959,7 +1406,8 @@ function textoFecha(iso) {
  * Es segura: si algo ya existe, no lo toca ni lo duplica.
  */
 function actualizarSistema() {
-  var lb = libro();
+  _soloDesdeLaHoja_();
+  var lb = libro_();
   var mensajes = [];
  
   // 1. Columna del ID de evento, AL FINAL de Reservas (nunca en el medio)
@@ -982,7 +1430,7 @@ function actualizarSistema() {
     var hhq = lb.getSheetByName(HOJA_HORARIOS);
     if (hhq) hhq.getRange('C2:D').setNumberFormat('@');
  
-    var tzL = tzLibro();
+    var tzL = tzLibro_();
     if (tzL !== TZ) {
       mensajes.push('· OJO: la hoja está en ' + tzL + ' y el script en ' + TZ + '. ' +
                     'Ponlas iguales en Archivo → Configuración → Zona horaria.');
@@ -1005,8 +1453,8 @@ function actualizarSistema() {
   }
 
   // 2b. Columnas PIN y Rol para el Dashboard (se agregan al final si faltan)
-  var encHb = hb.getRange(1, 1, 1, hb.getLastColumn()).getValues()[0].map(normalizar);
-  if (encHb.indexOf(normalizar('PIN')) < 0) {
+  var encHb = hb.getRange(1, 1, 1, hb.getLastColumn()).getValues()[0].map(normalizar_);
+  if (encHb.indexOf(normalizar_('PIN')) < 0) {
     var colPin = hb.getLastColumn() + 1;
     hb.getRange(1, colPin).setValue('PIN')
       .setFontWeight('bold').setBackground('#111111').setFontColor('#FFFFFF');
@@ -1015,8 +1463,8 @@ function actualizarSistema() {
     mensajes.push('· Se agregó la columna "PIN" a la hoja Barberos ' +
                   '(ponle un PIN de 4 dígitos a cada persona para el Dashboard).');
   }
-  encHb = hb.getRange(1, 1, 1, hb.getLastColumn()).getValues()[0].map(normalizar);
-  if (encHb.indexOf(normalizar('Rol')) < 0) {
+  encHb = hb.getRange(1, 1, 1, hb.getLastColumn()).getValues()[0].map(normalizar_);
+  if (encHb.indexOf(normalizar_('Rol')) < 0) {
     var colRol = hb.getLastColumn() + 1;
     hb.getRange(1, colRol).setValue('Rol')
       .setFontWeight('bold').setBackground('#111111').setFontColor('#FFFFFF');
@@ -1026,9 +1474,10 @@ function actualizarSistema() {
   }
 
   // 3. Sincronizar nombres desde Config, sin borrar lo ya escrito
-  var existentes = leerBarberos();
+  _olvidarHojas_();
+  var existentes = leerBarberos_();
   var nuevos = 0;
-  leerConfig().barberos.forEach(function (b) {
+  leerConfig_().barberos.forEach(function (b) {
     if (!existentes[b.nombre]) {
       hb.appendRow([b.nombre, '', '', '', '', 'Sí']);
       nuevos++;
@@ -1037,7 +1486,7 @@ function actualizarSistema() {
   if (nuevos) mensajes.push('· Se agregaron ' + nuevos + ' barbero(s) a la hoja Barberos.');
 
   // 3b. Fila del calendario GENERAL de la barbería (donde caen las citas de
-  // todos). Sin esta fila, calendarioGeneral() devuelve null y las citas solo
+  // todos). Sin esta fila, calendarioGeneral_() devuelve null y las citas solo
   // van al calendario del barbero.
   if (USAR_CALENDARIO && CALENDARIO_GENERAL && !existentes[CALENDARIO_GENERAL]) {
     hb.appendRow([CALENDARIO_GENERAL, '', '', '', '', 'No']);
@@ -1047,7 +1496,7 @@ function actualizarSistema() {
 
   // 4. Calendarios
   if (USAR_CALENDARIO) {
-    var creados = configurarCalendarios();
+    var creados = configurarCalendarios_();
     if (creados.length) mensajes.push('· Calendarios creados: ' + creados.join(', '));
   }
  
@@ -1060,13 +1509,14 @@ function actualizarSistema() {
 }
  
 /** Crea un calendario por barbero si aún no existe y guarda su ID */
-function configurarCalendarios() {
-  var hb = libro().getSheetByName(HOJA_BARBEROS);
+function configurarCalendarios_() {
+  _olvidarHojas_();   // actualizarSistema pudo agregar filas justo antes
+  var hb = libro_().getSheetByName(HOJA_BARBEROS);
   if (!hb) return [];
-  var barberos = leerBarberos();
+  var barberos = leerBarberos_();
   var creados = [];
  
-  var nombresReales = leerConfig().barberos.map(function (x) { return x.nombre; });
+  var nombresReales = leerConfig_().barberos.map(function (x) { return x.nombre; });
  
   Object.keys(barberos).forEach(function (nombre) {
     if (nombresReales.indexOf(nombre) < 0 && nombre !== CALENDARIO_GENERAL) return;
@@ -1092,9 +1542,9 @@ function configurarCalendarios() {
   return creados;
 }
  
-function configurarHojas() {
-  var lb = libro();
-  var cfg = leerConfig();
+function configurarHojas_() {
+  var lb = libro_();
+  var cfg = leerConfig_();
  
   var hr = lb.getSheetByName(HOJA_RESERVAS);
   if (!hr) {
@@ -1139,12 +1589,91 @@ function configurarHojas() {
   actualizarSistema();
 }
  
+// ==================== TRABAJO PENDIENTE (después de responder) ====================
+//
+// Crear, cambiar o cancelar una cita responde apenas la guarda. Lo lento
+// (correos, Telegram, pasar la cita al Registro, sincronizar cancelaciones) se
+// anota aquí y lo ejecuta procesarPendientes(), que la página llama justo
+// después sin que el usuario espere. Si la página se cierra antes, lo hace la
+// rutina de 15 minutos: nada se pierde.
+// Cada pendiente es una Propiedad del script "pend_<hora>_<azar>" (así no se
+// choca el límite de tamaño de una sola propiedad).
+
+function _encolar_(item) {
+  var clave = 'pend_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  PropertiesService.getScriptProperties().setProperty(clave, JSON.stringify(item));
+}
+
+function procesarPendientes_() {
+  var props = PropertiesService.getScriptProperties();
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return 0;
+  var items = [];
+  try {
+    var todo = props.getProperties();
+    Object.keys(todo).filter(function (k) { return k.indexOf('pend_') === 0; }).sort()
+      .forEach(function (k) {
+        try { items.push(JSON.parse(todo[k])); } catch (e) {}
+        props.deleteProperty(k);   // se saca de la cola antes de enviar: nunca se manda dos veces
+      });
+    if (items.length) {
+      try { volcarAutomatico_(); } catch (e) { console.error('pend volcar: ' + e); }
+      try { sincronizarCancelaciones_(); } catch (e) { console.error('pend cancel: ' + e); }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  // Los envíos van fuera del candado: no frenan a quien esté creando otra cita.
+  items.forEach(function (it) {
+    try {
+      if (it.k === 'nueva') {
+        enviarCorreos_(it.r, it.correo || '');
+        notificarBarbero_(it.r, 'nueva');
+      } else if (it.k === 'aviso') {
+        notificarBarbero_(it.r, it.tipo);
+      }
+    } catch (e) { console.error('pendiente: ' + e); }
+  });
+  return items.length;
+}
+
+/**
+ * La llaman las páginas (dashboard, reservas, cancelar) justo después de
+ * guardar. Es pública a propósito y sin sesión: solo despacha lo que ya está
+ * en la cola, una vez; llamarla de más no hace nada.
+ */
+function procesarPendientes() {
+  return procesarPendientes_();
+}
+
+// ==================== SEGURIDAD ====================
+//
+// En Apps Script, CUALQUIER función cuyo nombre no termine en "_" se puede
+// llamar desde cualquier página del sistema (también la pública de reservas)
+// con google.script.run. Por eso:
+//  · Todo lo interno termina en "_" (privado).
+//  · Lo que usa el dashboard pide el token de sesión (_sesion).
+//  · Lo del menú de la hoja arranca con _soloDesdeLaHoja_(): desde la web
+//    getUi() falla y la función se corta antes de hacer nada.
+// Si agregas una función nueva, decide en cuál de los tres grupos va.
+
+function _soloDesdeLaHoja_() {
+  SpreadsheetApp.getUi();   // lanza "Cannot call SpreadsheetApp.getUi() from this context" fuera de la hoja
+}
+
+/** Menú: procesar las respuestas del form ya mismo (la rutina lo hace sola cada 15 min). */
+function procesarRespuestasForm() {
+  _soloDesdeLaHoja_();
+  var n = procesarRespuestasForm_();
+  SpreadsheetApp.getUi().alert('Respuestas del form aplicadas: ' + n);
+}
+
 // ==================== UTILIDADES DEL DÍA A DÍA ====================
  
-function volcarAlRegistro(iso) {
-  iso = iso || hoyISO();
-  var hr = libro().getSheetByName(HOJA_RESERVAS);
-  var hg = libro().getSheetByName('Registro');
+function volcarAlRegistro_(iso) {
+  iso = iso || hoyISO_();
+  var hr = libro_().getSheetByName(HOJA_RESERVAS);
+  var hg = libro_().getSheetByName('Registro');
   if (!hr || !hg || hr.getLastRow() < 2) return 0;
  
   var datos = hr.getRange(2, 1, hr.getLastRow() - 1, 14).getValues();
@@ -1159,20 +1688,20 @@ function volcarAlRegistro(iso) {
   var DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
  
   datos.forEach(function (f) {
-    if (aISO(f[2]) !== iso) return;
+    if (aISO_(f[2]) !== iso) return;
     if (String(f[12]).trim() === 'Cancelada') return;
  
     // Calcular los valores auxiliares directo, sin depender de fórmulas del Excel
     var fechaDate  = f[2];    // Date de la fecha
-    var horaTexto  = aHHMM(f[3]);
+    var horaTexto  = aHHMM_(f[3]);
     var diaSem     = (fechaDate instanceof Date)
                      ? DIAS[(fechaDate.getDay() + 6) % 7]
-                     : diaSemana(aISO(f[2]));
+                     : diaSemana_(aISO_(f[2]));
     var horaBloque = horaTexto ? parseInt(horaTexto.split(':')[0], 10) : '';
     var anio       = (fechaDate instanceof Date) ? fechaDate.getFullYear()
-                     : parseInt(aISO(f[2]).slice(0,4), 10);
+                     : parseInt(aISO_(f[2]).slice(0,4), 10);
     var mes        = (fechaDate instanceof Date) ? fechaDate.getMonth() + 1
-                     : parseInt(aISO(f[2]).slice(5,7), 10);
+                     : parseInt(aISO_(f[2]).slice(5,7), 10);
     var duracion   = Number(f[7]) || 0;   // columna Duración (min) de Reservas
  
     // Columnas exactas del Registro:
@@ -1224,7 +1753,8 @@ function volcarAlRegistro(iso) {
 }
  
 function volcarHoy() {
-  var hoy = hoyISO();
+  _soloDesdeLaHoja_();
+  var hoy = hoyISO_();
   var ui = SpreadsheetApp.getUi();
  
   // Mostrar qué fecha va a usar para que puedas corregirla si la zona horaria
@@ -1251,7 +1781,7 @@ function volcarHoy() {
     return;
   }
  
-  var n = volcarAlRegistro(iso);
+  var n = volcarAlRegistro_(iso);
   ui.alert('Se pasaron ' + n + ' citas del ' + iso + ' al Registro.\n\n' +
     (n > 0
       ? 'Falta que completes estado, método de pago y propina en cada fila.'
@@ -1261,12 +1791,13 @@ function volcarHoy() {
  
 /** Prueba: manda una notificación de mentira al primer barbero configurado */
 function probarNotificaciones() {
-  var barberos = leerBarberos();
+  _soloDesdeLaHoja_();
+  var barberos = leerBarberos_();
   var nombre = Object.keys(barberos)[0];
   if (!nombre) { SpreadsheetApp.getUi().alert('No hay barberos en la hoja Barberos.'); return; }
  
-  notificarBarbero({
-    id: 'PRUEBA', fecha: hoyISO(), hora: '15:00', fin: '15:45',
+  notificarBarbero_({
+    id: 'PRUEBA', fecha: hoyISO_(), hora: '15:00', fin: '15:45',
     barbero: nombre, servicio: 'Corte de Cabello (PRUEBA)', duracion: 45,
     precio: 35000, nombre: 'Cliente de prueba', telefono: '3001234567',
     notas: 'Esto es una prueba. No se agendó ninguna cita real.'
@@ -1286,10 +1817,11 @@ function probarNotificaciones() {
  * con Config. Es lo primero que hay que correr cuando "no pasa nada".
  */
 function revisarConfiguracion() {
+  _soloDesdeLaHoja_();
   var problemas = [], ok = [];
-  var barberos = leerBarberos();
+  var barberos = leerBarberos_();
  
-  leerConfig().barberos.forEach(function (b) {
+  leerConfig_().barberos.forEach(function (b) {
     var d = barberos[b.nombre];
     if (!d) {
       problemas.push('✗ "' + b.nombre + '" está en Config pero NO en la hoja Barberos ' +
@@ -1324,8 +1856,9 @@ function revisarConfiguracion() {
  * Es la herramienta para entender por qué una hora aparece o no aparece.
  */
 function diagnosticoAgenda() {
+  _soloDesdeLaHoja_();
   var ui = SpreadsheetApp.getUi();
-  var cfg = leerConfig();
+  var cfg = leerConfig_();
   if (!cfg.barberos.length) { ui.alert('No hay barberos en Config.'); return; }
  
   var rf = ui.prompt('Diagnóstico de agenda',
@@ -1334,27 +1867,27 @@ function diagnosticoAgenda() {
   var iso = rf.getResponseText().trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) { ui.alert('Formato de fecha inválido.'); return; }
  
-  var tzL = tzLibro();
+  var tzL = tzLibro_();
   var txt = 'Zona horaria de la hoja: ' + tzL + '\n' +
             'Zona horaria del script: ' + TZ + '\n' +
             (tzL === TZ ? 'Coinciden. Bien.\n' : '¡NO COINCIDEN! Las horas se van a correr.\n') +
-            '\nFecha: ' + iso + ' (' + diaSemana(iso) + ')\n';
+            '\nFecha: ' + iso + ' (' + diaSemana_(iso) + ')\n';
  
-  var horarios = leerHorarios();
+  var horarios = leerHorarios_();
   cfg.barberos.forEach(function (b) {
-    var h = horarios[b.nombre] && horarios[b.nombre][diaSemana(iso)];
+    var h = horarios[b.nombre] && horarios[b.nombre][diaSemana_(iso)];
     txt += '\n— ' + b.nombre + ' —\n' +
            'Horario: ' + (h ? h.abre + ' a ' + h.cierra : 'SIN HORARIO ese día') + '\n';
-    var oc = ocupacion(b.nombre, iso);
+    var oc = ocupacion_(b.nombre, iso);
     txt += 'Ocupado: ' + (oc.length
-      ? oc.map(function (x) { return aTexto(x.ini) + '-' + aTexto(x.fin); }).join(', ')
+      ? oc.map(function (x) { return aTexto_(x.ini) + '-' + aTexto_(x.fin); }).join(', ')
       : 'nada') + '\n';
   });
  
   ui.alert('Diagnóstico de agenda', txt, ui.ButtonSet.OK);
 }
  
-function menuPersonalizado() {
+function menuPersonalizado_() {
   SpreadsheetApp.getUi()
     .createMenu(NEGOCIO)
     .addItem('Pasar citas de hoy al Registro', 'volcarHoy')
@@ -1376,6 +1909,11 @@ function menuPersonalizado() {
     .addItem('Reparar fórmulas de comisión y productos', 'repararFormulasComision')
     .addItem('Borrar citas canceladas de la hoja', 'borrarCitasCanceladas')
     .addItem('Sincronizar calendario con el Registro', 'sincronizarCalendarioConRegistro')
+    .addSeparator()
+    .addItem('Configurar Telegram', 'configurarTelegram')
+    .addItem('Probar avisos de Telegram', 'probarTelegram')
+    .addItem('Diagnóstico de Telegram', 'diagnosticoTelegram')
+    .addItem('Quitar citas de Google Calendar', 'quitarCitasDeGoogleCalendar')
     .addToUi();
 }
 
@@ -1385,9 +1923,10 @@ function menuPersonalizado() {
  * Si alguna fila cancelada tenía bebidas anotadas, se devuelven al inventario.
  */
 function borrarCitasCanceladas() {
+  _soloDesdeLaHoja_();
   var ui = SpreadsheetApp.getUi();
-  var hr = libro().getSheetByName(HOJA_RESERVAS);
-  var hg = libro().getSheetByName('Registro');
+  var hr = libro_().getSheetByName(HOJA_RESERVAS);
+  var hg = libro_().getSheetByName('Registro');
 
   var filasRes = [], ids = {};
   if (hr && hr.getLastRow() >= 2) {
@@ -1416,7 +1955,7 @@ function borrarCitasCanceladas() {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    var hi = libro().getSheetByName('Inventario');
+    var hi = libro_().getSheetByName('Inventario');
     // De abajo hacia arriba, para que borrar una fila no corra las demás.
     filasReg.sort(function (a, b) { return b - a; }).forEach(function (fila) {
       if (hi) actualizarInventario_(hi, _deltaProductos_({}, _productosDeFila_(hg, fila)));
@@ -1438,7 +1977,8 @@ function borrarCitasCanceladas() {
  * #ERROR! en vez de calcular.
  */
 function repararFormulasComision() {
-  var hg = libro().getSheetByName('Registro');
+  _soloDesdeLaHoja_();
+  var hg = libro_().getSheetByName('Registro');
   var ui = SpreadsheetApp.getUi();
   if (!hg || hg.getLastRow() < 2) { ui.alert('El Registro está vacío, no hay nada que reparar.'); return; }
 
@@ -1460,7 +2000,7 @@ function repararFormulasComision() {
     }
   }
   // Inventario: Stock actual = inicial + entradas − vendidas − cortesías + ajustes
-  var hi = libro().getSheetByName('Inventario');
+  var hi = libro_().getSheetByName('Inventario');
   if (hi && hi.getLastRow() >= 2) {
     _asegurarColAjustes_(hi);
     var nombresInv = hi.getRange(2, 1, hi.getLastRow() - 1, 1).getValues();
@@ -1474,7 +2014,7 @@ function repararFormulasComision() {
     (nv ? '\nSe completó el valor de productos en ' + nv + ' fila(s).' : ''));
 }
  
-function onOpen() { menuPersonalizado(); }
+function onOpen() { menuPersonalizado_(); }
 /**
  * RIIF — BLOQUE v5 · Automatización del Registro
  *
@@ -1482,11 +2022,11 @@ function onOpen() { menuPersonalizado(); }
  * modifica nada de lo que ya está: solo agrega funciones nuevas.
  *
  * QUÉ HACE
- *  1. volcarAutomatico()      — pasa las citas al Registro solo, sin preguntar
+ *  1. volcarConCandado_()      — pasa las citas al Registro solo, sin preguntar
  *                               fecha y sin duplicar nada.
  *  2. procesarRespuestasForm() — lee el form de cierre de los barberos y
  *                               escribe Estado y Método de pago en el Registro.
- *  3. sincronizarCancelaciones() — si una cita ya volcada se cancela después,
+ *  3. sincronizarCancelaciones_() — si una cita ya volcada se cancela después,
  *                               el Registro pasa a "Cancelado" solo.
  *  4. instalarDisparador()    — instala los dos disparadores de tiempo.
  *
@@ -1506,7 +2046,7 @@ var GRACIA_MIN = 10;
  * y que todavía no estén en el Registro. Idempotente: se puede correr mil veces
  * al día y nunca duplica una fila.
  */
-function volcarAutomatico() {
+function volcarConCandado_() {
   // Candado propio: lo llaman a la vez el disparador de 15 min y crearReserva.
   var lock = LockService.getScriptLock();
   try { lock.waitLock(20000); } catch (e) { return 0; }
@@ -1518,8 +2058,8 @@ function volcarAutomatico() {
 }
 
 function volcarAutomatico_() {
-  var hr = libro().getSheetByName(HOJA_RESERVAS);
-  var hg = libro().getSheetByName('Registro');
+  var hr = libro_().getSheetByName(HOJA_RESERVAS);
+  var hg = libro_().getSheetByName('Registro');
   if (!hr || !hg || hr.getLastRow() < 2) return 0;
 
   var datos  = hr.getRange(2, 1, hr.getLastRow() - 1, 14).getValues();
@@ -1544,45 +2084,40 @@ function volcarAutomatico_() {
     var id = String(f[0]).trim();
     if (!id) return;
     if (yaEsta[id]) return;                    // ya está en el Registro
-    var isoCita = aISO(f[2]);
+    var isoCita = aISO_(f[2]);
     if (!isoCita) return;
     // Las canceladas SÍ entran: se volcan con estado "Cancelado" para que
     // quede la huella de la cita perdida. Si ya estaba, la arregla
-    // sincronizarCancelaciones().
+    // sincronizarCancelaciones_().
     var cancelada = (String(f[12]).trim() === 'Cancelada');
  
     var fechaDate  = f[2];
-    var horaTexto  = aHHMM(f[3]);
+    var horaTexto  = aHHMM_(f[3]);
     var diaSem     = (fechaDate instanceof Date)
                      ? DIAS_L[(fechaDate.getDay() + 6) % 7]
-                     : diaSemana(aISO(f[2]));
+                     : diaSemana_(aISO_(f[2]));
     var horaBloque = horaTexto ? parseInt(horaTexto.split(':')[0], 10) : '';
     var p          = isoCita.split('-');
     var fechaReal  = new Date(parseInt(p[0],10), parseInt(p[1],10) - 1, parseInt(p[2],10));
     var precio     = Number(f[8]) || 0;
     var duracion   = Number(f[7]) || 0;
  
-    hg.getRange(fila, 1).setValue(fechaReal);
+    // En bloque (antes eran ~20 escrituras sueltas por cita). La col 11
+    // (Método) no se toca: la llena el cierre.
+    //   1 Fecha · 2 Hora · 3 Barbero · 4 Cliente · 5 Teléfono · 6 Servicio
+    //   7 Valor · 8 Desc · 9 Total · 10 Propina
+    hg.getRange(fila, 1, 1, 10).setValues([[
+      fechaReal, horaTexto, f[5], f[9], f[10], f[6], precio, 0, precio, 0
+    ]]);
     hg.getRange(fila, 1).setNumberFormat('DD/MM/YYYY');
-    hg.getRange(fila, 2).setValue(horaTexto);
-    hg.getRange(fila, 3).setValue(f[5]);       // Barbero
-    hg.getRange(fila, 4).setValue(f[9]);       // Cliente
-    hg.getRange(fila, 5).setValue(f[10]);      // Teléfono
-    hg.getRange(fila, 6).setValue(f[6]);       // Servicio
-    hg.getRange(fila, 7).setValue(precio);
-    hg.getRange(fila, 8).setValue(0);
-    hg.getRange(fila, 9).setValue(precio);
-    hg.getRange(fila, 10).setValue(0);
     hg.getRange(fila, 12).setValue(cancelada ? 'Cancelado' : 'Pendiente');
  
     _aplicarFormulasComision_(hg, fila);
 
-    hg.getRange(fila, 16).setValue('Cita ' + id);   // ← esta es la llave
-    hg.getRange(fila, 17).setValue(fechaReal.getFullYear());
-    hg.getRange(fila, 18).setValue(fechaReal.getMonth() + 1);
-    hg.getRange(fila, 19).setValue(diaSem);
-    hg.getRange(fila, 20).setValue(horaBloque);
-    hg.getRange(fila, 21).setValue(duracion);
+    //   16 Notas (← la llave) · 17 Año · 18 Mes · 19 Día sem · 20 Hora bloque · 21 Duración
+    hg.getRange(fila, 16, 1, 6).setValues([[
+      'Cita ' + id, fechaReal.getFullYear(), fechaReal.getMonth() + 1, diaSem, horaBloque, duracion
+    ]]);
  
     yaEsta[id] = fila;
     fila++; n++;
@@ -1593,7 +2128,7 @@ function volcarAutomatico_() {
  
 /** Mapa { idCita: numeroDeFila } leyendo la columna Notas del Registro. */
 function idsEnRegistro_() {
-  var hg = libro().getSheetByName('Registro');
+  var hg = libro_().getSheetByName('Registro');
   var mapa = {};
   if (!hg || hg.getLastRow() < 2) return mapa;
   var notas = hg.getRange(2, 16, hg.getLastRow() - 1, 1).getValues();   // col 16 = Notas
@@ -1611,7 +2146,7 @@ function idsEnRegistro_() {
  * Estado y el Método de pago de cada cita. Marca cada respuesta ya procesada
  * en una columna al final de la hoja de respuestas, para no repetir trabajo.
  */
-function procesarRespuestasForm() {
+function procesarRespuestasForm_() {
   if (!FORM_SHEET_ID) return 0;
  
   var hf = SpreadsheetApp.openById(FORM_SHEET_ID).getSheets()[0];
@@ -1619,7 +2154,7 @@ function procesarRespuestasForm() {
  
   var ancho  = hf.getLastColumn();
   var cabeza = hf.getRange(1, 1, 1, ancho).getValues()[0].map(function (x) {
-    return normalizar(String(x));
+    return normalizar_(String(x));
   });
  
   // Ubicar columnas por el texto del encabezado (aguanta cambios de orden)
@@ -1655,8 +2190,8 @@ function procesarRespuestasForm() {
   }
  
   var filas = hf.getRange(2, 1, hf.getLastRow() - 1, colMarca).getValues();
-  var hg    = libro().getSheetByName('Registro');
-  var hi    = libro().getSheetByName('Inventario');
+  var hg    = libro_().getSheetByName('Registro');
+  var hi    = libro_().getSheetByName('Inventario');
   var mapa  = idsEnRegistro_();
   var n = 0;
  
@@ -1736,7 +2271,7 @@ function actualizarInventario_(hi, delta) {
 
     var idx = -1;
     for (var i = 0; i < filas.length; i++) {
-      if (normalizar(filas[i][0]) === normalizar(nombre)) { idx = i; break; }
+      if (normalizar_(filas[i][0]) === normalizar_(nombre)) { idx = i; break; }
     }
     if (idx < 0) return;                       // producto que no está en Inventario
 
@@ -1835,8 +2370,8 @@ function _deltaProductos_(nuevo, viejo) {
  * @returns {number} cuántas citas se arreglaron
  */
 function sincronizarReservasConRegistro_() {
-  var hg = libro().getSheetByName('Registro');
-  var hr = libro().getSheetByName(HOJA_RESERVAS);
+  var hg = libro_().getSheetByName('Registro');
+  var hr = libro_().getSheetByName(HOJA_RESERVAS);
   if (!hg || !hr || hg.getLastRow() < 2) return 0;
 
   var reg = hg.getRange(2, 1, hg.getLastRow() - 1, 21).getValues();
@@ -1844,16 +2379,16 @@ function sincronizarReservasConRegistro_() {
   var filaRes = {};
   res.forEach(function (f, i) { var id = String(f[0]).trim(); if (id) filaRes[id] = i; });
 
-  var hoy = hoyISO();
+  var hoy = hoyISO_();
   var n = 0;
 
   reg.forEach(function (f, i) {
     var estado = String(f[11] || '').trim();
     if (estado === 'Cancelado') return;
     var iso = _isoCeldaRegistro_(f[0]);
-    var hora = aHHMM(f[1]);
+    var hora = aHHMM_(f[1]);
     var barbero = String(f[2] || '').trim();
-    if (!iso || !hora || aMin(hora) === null || !barbero) return;   // fila incompleta: no se adivina
+    if (!iso || !hora || aMin_(hora) === null || !barbero) return;   // fila incompleta: no se adivina
 
     var nota = String(f[15] || '').trim();
     var id = nota.indexOf('Cita ') === 0 ? nota.substring(5).trim() : '';
@@ -1868,11 +2403,11 @@ function sincronizarReservasConRegistro_() {
         hg.getRange(i + 2, 16).setValue('Cita ' + id);
       }
       if (!dur) {
-        var combo = _combinarServicios_(leerConfig(), String(f[5] || '').trim().split(SEPARADOR_COMBO));
+        var combo = _combinarServicios_(leerConfig_(), String(f[5] || '').trim().split(SEPARADOR_COMBO));
         dur = (combo.ok && combo.duracion) ? combo.duracion : PASO_MIN;
       }
       var r = {
-        id: id, fecha: iso, hora: hora, fin: aTexto(aMin(hora) + dur), barbero: barbero,
+        id: id, fecha: iso, hora: hora, fin: aTexto_(aMin_(hora) + dur), barbero: barbero,
         servicio: String(f[5] || '').trim(), duracion: dur, precio: Number(f[6]) || 0,
         nombre: String(f[3] || '').trim() || 'Sin nombre',
         telefono: String(f[4] || '').replace(/\D/g, ''), notas: notaVieja
@@ -1880,7 +2415,7 @@ function sincronizarReservasConRegistro_() {
       hr.appendRow([r.id, new Date(), r.fecha, r.hora, r.fin, r.barbero, r.servicio,
                     r.duracion, r.precio, r.nombre, r.telefono, '', 'Confirmada', r.notas]);
       if (iso >= hoy) {
-        var idEv = crearEvento(r);
+        var idEv = crearEvento_(r);
         if (idEv) hr.getRange(hr.getLastRow(), COL_EVENTO).setValue(idEv);
       }
       filaRes[id] = -1;   // ya quedó
@@ -1902,20 +2437,20 @@ function sincronizarReservasConRegistro_() {
 
     // --- 3. Fecha / hora / barbero distintos: manda el Registro ---
     var durRes = Number(fr[7]) || dur || PASO_MIN;
-    if (aISO(fr[2]) !== iso || aHHMM(fr[3]) !== hora || String(fr[5]).trim() !== barbero) {
+    if (aISO_(fr[2]) !== iso || aHHMM_(fr[3]) !== hora || String(fr[5]).trim() !== barbero) {
       hr.getRange(fila, 3).setValue(iso);
       hr.getRange(fila, 4).setValue(hora);
-      hr.getRange(fila, 5).setValue(aTexto(aMin(hora) + durRes));
+      hr.getRange(fila, 5).setValue(aTexto_(aMin_(hora) + durRes));
       hr.getRange(fila, 6).setValue(barbero);
       cambio = true;
     }
 
     if (cambio) {
-      try { borrarEvento(String(fr[5]).trim(), String(fr[COL_EVENTO - 1] || '').trim()); } catch (e) {}
+      try { borrarEvento_(String(fr[5]).trim(), String(fr[COL_EVENTO - 1] || '').trim()); } catch (e) {}
       var idEv2 = '';
       if (iso >= hoy) {
-        idEv2 = crearEvento({
-          id: id, fecha: iso, hora: hora, fin: aTexto(aMin(hora) + durRes), barbero: barbero,
+        idEv2 = crearEvento_({
+          id: id, fecha: iso, hora: hora, fin: aTexto_(aMin_(hora) + durRes), barbero: barbero,
           servicio: String(fr[6]).trim(), duracion: durRes, precio: Number(fr[8]) || 0,
           nombre: String(fr[9]).trim(), telefono: String(fr[10]).trim(), notas: String(fr[13]).trim()
         });
@@ -1929,6 +2464,7 @@ function sincronizarReservasConRegistro_() {
 
 /** Desde el menú: corre la sincronización y cuenta qué hizo. */
 function sincronizarCalendarioConRegistro() {
+  _soloDesdeLaHoja_();
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   var n;
@@ -1942,9 +2478,9 @@ function sincronizarCalendarioConRegistro() {
  * Si una cita ya estaba en el Registro y después se canceló desde la web,
  * el Registro se pone en "Cancelado" (las fórmulas de comisión se van a cero solas).
  */
-function sincronizarCancelaciones() {
-  var hr = libro().getSheetByName(HOJA_RESERVAS);
-  var hg = libro().getSheetByName('Registro');
+function sincronizarCancelaciones_() {
+  var hr = libro_().getSheetByName(HOJA_RESERVAS);
+  var hg = libro_().getSheetByName('Registro');
   if (!hr || !hg || hr.getLastRow() < 2) return 0;
  
   var datos = hr.getRange(2, 1, hr.getLastRow() - 1, 14).getValues();
@@ -1967,9 +2503,12 @@ function sincronizarCancelaciones() {
  
 /** Lo que corre solo cada 15 minutos. No abre ventanas ni pide nada. */
 function rutinaAutomatica() {
-  try { volcarAutomatico(); }        catch (e) { console.error('volcar: ' + e); }
-  try { procesarRespuestasForm(); }  catch (e) { console.error('form: ' + e); }
-  try { sincronizarCancelaciones(); }catch (e) { console.error('cancel: ' + e); }
+  try { procesarPendientes_(); }      catch (e) { console.error('pendientes: ' + e); }
+  try { volcarConCandado_(); }        catch (e) { console.error('volcar: ' + e); }
+  try { procesarRespuestasForm_(); } catch (e) { console.error('form: ' + e); }
+  try { sincronizarCancelaciones_(); }catch (e) { console.error('cancel: ' + e); }
+  try { _tgProcesarUpdates_(); }     catch (e) { console.error('tg updates: ' + e); }
+  try { _tgRecordatorios_(); }       catch (e) { console.error('tg recordatorios: ' + e); }
   try {
     var lock = LockService.getScriptLock();
     if (lock.tryLock(10000)) {
@@ -1983,6 +2522,7 @@ function rutinaAutomatica() {
  * para no dejar dos corriendo (eso duplicaría trabajo).
  */
 function instalarDisparador() {
+  _soloDesdeLaHoja_();
   ScriptApp.getProjectTriggers().forEach(function (t) {
     var f = t.getHandlerFunction();
     if (f === 'rutinaAutomatica' || f === 'volcarAutomatico' || f === 'procesarRespuestasForm') {
@@ -2007,6 +2547,7 @@ function instalarDisparador() {
  
 /** Apaga la automatización (por si necesitas volver a lo manual). */
 function quitarDisparadores() {
+  _soloDesdeLaHoja_();
   var n = 0;
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'rutinaAutomatica') { ScriptApp.deleteTrigger(t); n++; }
@@ -2016,10 +2557,11 @@ function quitarDisparadores() {
  
 /** Corre la rutina ahora mismo y te dice qué hizo. Úsala para probar. */
 function correrRutinaAhora() {
+  _soloDesdeLaHoja_();
   var a = 0, b = 0, c = 0, err = '';
-  try { a = volcarAutomatico(); }         catch (e) { err += '\nVolcado: ' + e; }
-  try { b = procesarRespuestasForm(); }   catch (e) { err += '\nForm: ' + e; }
-  try { c = sincronizarCancelaciones(); } catch (e) { err += '\nCancelaciones: ' + e; }
+  try { a = volcarConCandado_(); }         catch (e) { err += '\nVolcado: ' + e; }
+  try { b = procesarRespuestasForm_(); }  catch (e) { err += '\nForm: ' + e; }
+  try { c = sincronizarCancelaciones_(); } catch (e) { err += '\nCancelaciones: ' + e; }
  
   SpreadsheetApp.getUi().alert(
     'Rutina ejecutada\n\n' +
@@ -2038,7 +2580,8 @@ function correrRutinaAhora() {
  * Corre esta función UNA VEZ desde el menú.
  */
 function configurarInventario() {
-  var lb = libro();
+  _soloDesdeLaHoja_();
+  var lb = libro_();
   var mensajes = [];
  
   // 1. Hoja Inventario
@@ -2125,7 +2668,7 @@ function _asegurarColAjustes_(hi) {
  * Núcleo sin UI: lo usan el menú y el Dashboard. Devuelve { ok, error }.
  */
 function _reponerStock_(producto, cantidad) {
-  var hi = libro().getSheetByName('Inventario');
+  var hi = libro_().getSheetByName('Inventario');
   if (!hi) return { ok: false, error: 'No existe la hoja Inventario. Corre primero "Configurar inventario".' };
   cantidad = Number(cantidad);
   if (isNaN(cantidad) || cantidad === 0) return { ok: false, error: 'Cantidad inválida.' };
@@ -2133,7 +2676,7 @@ function _reponerStock_(producto, cantidad) {
   var ult = hi.getLastRow();
   var filas = ult >= 2 ? hi.getRange(2, 1, ult - 1, 1).getValues() : [];
   for (var i = 0; i < filas.length; i++) {
-    if (normalizar(filas[i][0]) === normalizar(producto)) {
+    if (normalizar_(filas[i][0]) === normalizar_(producto)) {
       var fila = i + 2;
       var actual = Number(hi.getRange(fila, 3).getValue()) || 0;
       hi.getRange(fila, 3).setValue(actual + cantidad);
@@ -2144,7 +2687,7 @@ function _reponerStock_(producto, cantidad) {
 }
 
 /** Agrega una entrada de inventario (reposición de stock) — desde el menú. */
-function agregarStockInventario(producto, cantidad) {
+function agregarStockInventario_(producto, cantidad) {
   var r = _reponerStock_(producto, cantidad);
   SpreadsheetApp.getUi().alert(r.ok
     ? 'Stock actualizado: +' + cantidad + ' ' + r.producto + '.'
@@ -2153,6 +2696,7 @@ function agregarStockInventario(producto, cantidad) {
  
 /** Menú para reponer stock manualmente. */
 function reponerStock() {
+  _soloDesdeLaHoja_();
   var ui = SpreadsheetApp.getUi();
   var rProd = ui.prompt('Reponer stock', 'Producto (Agua, Cerveza o Coca Cola):', ui.ButtonSet.OK_CANCEL);
   if (rProd.getSelectedButton() !== ui.Button.OK) return;
@@ -2160,5 +2704,5 @@ function reponerStock() {
   if (rCant.getSelectedButton() !== ui.Button.OK) return;
   var cant = parseInt(rCant.getResponseText().trim(), 10);
   if (isNaN(cant) || cant <= 0) { ui.alert('Cantidad inválida.'); return; }
-  agregarStockInventario(rProd.getResponseText().trim(), cant);
+  agregarStockInventario_(rProd.getResponseText().trim(), cant);
 }

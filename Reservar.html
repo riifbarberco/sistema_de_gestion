@@ -410,6 +410,8 @@ function confirmar(){
       return;
     }
     mostrarOk(r);
+    // Correos y avisos al barbero: se mandan ahora, por detrás (el cliente ya ve su confirmación).
+    google.script.run.withFailureHandler(function(){}).procesarPendientes();
   }).withFailureHandler(function(){
     btn.disabled = false; btn.textContent = 'Confirmar mi cita';
     caja.innerHTML = '<div class="error">No se pudo guardar. Revisa tu conexión e intenta otra vez.</div>';

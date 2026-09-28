@@ -6,7 +6,7 @@
  *
  * QUÉ AGREGA
  *  · Ruta ?p=dashboard en doGet → sirve la página Dashboard
- *  · getDatosDashboard(barbero, desde, hasta) → métricas para el dashboard
+ *  · getDatosDashboard(token, desde, hasta) → métricas para el dashboard
  *
  * CAMBIO EN doGet (único lugar donde hay que editar el código existente):
  *   Busca la función doGet al inicio del archivo y reemplázala
@@ -50,8 +50,19 @@
  * @returns {Object} objeto con totalServicios, totalComision, totalPropinas,
  *                   totalCobrado, porPeriodo[], topServicios[], servicios[]
  */
-function getDatosDashboard(barbero, desde, hasta, verTodo) {
-  var hg = libro().getSheetByName('Registro');
+function getDatosDashboard(token, desde, hasta) {
+  // Quién es y qué puede ver lo decide la SESIÓN, no la pantalla: el barbero
+  // solo sus servicios, el dueño todos.
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  var d = datosDashboard_(s.nombre, desde, hasta, s.rol === 'Dueño');
+  d.ok = true;
+  return d;
+}
+
+/** Núcleo del Resumen (privado). Lo usan getDatosDashboard y el cierre. */
+function datosDashboard_(barbero, desde, hasta, verTodo) {
+  var hg = libro_().getSheetByName('Registro');
   if (!hg || hg.getLastRow() < 2) {
     return _dashboardVacio();
   }
@@ -189,7 +200,7 @@ function getDatosDashboard(barbero, desde, hasta, verTodo) {
 
 /** Fecha ISO de la columna Fecha del Registro (Date, DD/MM/YYYY o YYYY-MM-DD); '' si no se entiende. */
 function _isoCeldaRegistro_(v) {
-  if (v instanceof Date) return aISO(v);
+  if (v instanceof Date) return aISO_(v);
   var s = String(v || '').trim();
   var mDMY = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   var mYMD = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
@@ -247,7 +258,7 @@ function getAnalisisDashboard(token, desde, hasta) {
     out.dowOcurrencias[(new Date(d0.getTime() + t * 86400000).getDay() + 6) % 7]++;
   }
 
-  var hg = libro().getSheetByName('Registro');
+  var hg = libro_().getSheetByName('Registro');
   if (!hg || hg.getLastRow() < 2) return out;
   var ancho = Math.max(16, Math.min(COL_VALOR_PROD, hg.getLastColumn()));
   var datos = hg.getRange(2, 1, hg.getLastRow() - 1, ancho).getValues();
@@ -288,7 +299,7 @@ function getAnalisisDashboard(token, desde, hasta) {
     pf.n++; pf.ingresos += ingreso;
 
     var dow = (new Date(iso + 'T12:00:00').getDay() + 6) % 7;
-    var hhmm = aHHMM(f[1]);
+    var hhmm = aHHMM_(f[1]);
     var hora = parseInt(String(hhmm).split(':')[0], 10);
     if (!isNaN(hora) && hora >= 0 && hora < 24) out.heat[dow][hora]++;
 
@@ -329,7 +340,7 @@ function _dashboardVacio() {
 function _construirPeriodo(desde, hasta, contPorDia) {
   // Diferencia en días. OJO: se parsea como hora LOCAL ('...T00:00:00'), no UTC,
   // para que _isoDate (que lee getFullYear/getMonth/getDate locales) coincida
-  // con las claves de contPorDia (generadas con aISO / zona de la hoja).
+  // con las claves de contPorDia (generadas con aISO_ / zona de la hoja).
   var d1 = new Date(desde + 'T00:00:00'), d2 = new Date(hasta + 'T00:00:00');
   var diff = Math.round((d2 - d1) / 86400000) + 1;
 
@@ -339,7 +350,7 @@ function _construirPeriodo(desde, hasta, contPorDia) {
   if (diff <= 1) {
     // Un solo día → un único punto con el total del día
     var item = contPorDia[desde] || { count: 0, total: 0 };
-    return [{ label: fmtLabelFecha(desde), count: item.count, total: item.total }];
+    return [{ label: fmtLabelFecha_(desde), count: item.count, total: item.total }];
   }
 
   if (diff <= 31) {
@@ -388,7 +399,7 @@ function _construirPeriodo(desde, hasta, contPorDia) {
   });
 }
 
-function fmtLabelFecha(iso) {
+function fmtLabelFecha_(iso) {
   var meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
   var p = iso.split('-');
   return parseInt(p[2], 10) + ' ' + meses[parseInt(p[1], 10) - 1];
@@ -444,7 +455,7 @@ function _sesion(token) {
   // no tiene que volver a entrar). Si la hoja falla, se usa el del token.
   var rol = datos.r;
   try {
-    var b = leerBarberos()[datos.n];
+    var b = leerBarberos_()[datos.n];
     if (b) rol = _rolDe_(b.rol);
   } catch (e) {}
   return { nombre: datos.n, rol: rol };
@@ -460,10 +471,23 @@ function iniciarSesion(nombre, pin) {
   if (!nombre) return { ok: false, error: 'Elige tu nombre.' };
   if (pin.length < 4) return { ok: false, error: 'El PIN son 4 dígitos.' };
 
-  var b = leerBarberos()[nombre];
+  // Con 4 dígitos hay solo 10.000 PIN posibles: tras 5 intentos fallidos el
+  // usuario queda bloqueado 15 minutos, para que no se puedan probar todos.
+  var cache = CacheService.getScriptCache();
+  var claveFallos = 'login_fallos|' + normalizar_(nombre);
+  var fallos = Number(cache.get(claveFallos)) || 0;
+  if (fallos >= 5) return { ok: false, error: 'Demasiados intentos. Espera 15 minutos y vuelve a intentar.' };
+
+  var b = leerBarberos_()[nombre];
   if (!b) return { ok: false, error: 'No encontramos "' + nombre + '" en la hoja Barberos.' };
   if (!b.pin) return { ok: false, error: 'Tu usuario todavía no tiene PIN. Pídeselo al administrador.' };
-  if (b.pin !== pin) return { ok: false, error: 'PIN incorrecto.' };
+  if (b.pin !== pin) {
+    cache.put(claveFallos, String(fallos + 1), 900);
+    return { ok: false, error: fallos + 1 >= 5
+      ? 'PIN incorrecto. Por seguridad, espera 15 minutos antes de intentar de nuevo.'
+      : 'PIN incorrecto.' };
+  }
+  cache.remove(claveFallos);
 
   var rol = _rolDe_(b.rol);
   var cuerpo = Utilities.base64EncodeWebSafe(JSON.stringify({
@@ -506,13 +530,14 @@ function cambiarPinDashboard(token, pinActual, pinNuevo) {
   catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
 
   try {
-    var b = leerBarberos()[s.nombre];
+    var b = leerBarberos_()[s.nombre];
     if (!b) return { ok: false, error: 'No encontramos tu usuario en la hoja Barberos.' };
     if (b.colPin < 1) return { ok: false, error: 'La hoja Barberos no tiene columna PIN. Avisa al administrador.' };
     if (!b.pin || b.pin !== pinActual) return { ok: false, error: 'El PIN actual no es correcto.' };
 
-    var h = libro().getSheetByName(HOJA_BARBEROS);
+    var h = libro_().getSheetByName(HOJA_BARBEROS);
     h.getRange(b.fila, b.colPin).setNumberFormat('@').setValue(pinNuevo);
+    _olvidarHojas_([HOJA_BARBEROS]);   // que el PIN nuevo valga ya, no en 10 minutos
     return { ok: true };
 
   } catch (err) {
@@ -532,13 +557,13 @@ function getUsuariosDashboard() {
   var vistos = {};
 
   try {
-    leerConfig().barberos.forEach(function (b) {
+    leerConfig_().barberos.forEach(function (b) {
       if (b.nombre && !vistos[b.nombre]) { vistos[b.nombre] = true; lista.push(b.nombre); }
     });
   } catch (e) { /* si Config falla, seguimos con lo que haya en Barberos */ }
 
   try {
-    var bs = leerBarberos();
+    var bs = leerBarberos_();
     Object.keys(bs).forEach(function (nombre) {
       if (vistos[nombre]) return;
       if (nombre === CALENDARIO_GENERAL) return;      // fila del calendario general
@@ -557,7 +582,7 @@ function getUsuariosDashboard() {
 function getOpcionesCierre() {
   var metodos = [], estados = [], productos = [];
   try {
-    var h = libro().getSheetByName(HOJA_CONFIG);
+    var h = libro_().getSheetByName(HOJA_CONFIG);
     if (h) {
       h.getRange('H5:H14').getValues().forEach(function (f) {
         if (String(f[0]).trim()) metodos.push(String(f[0]).trim());
@@ -571,7 +596,7 @@ function getOpcionesCierre() {
 
   // Catálogo de servicios: el modal de cierre deja ajustar lo que de verdad se hizo.
   var servicios = [];
-  try { servicios = leerConfig().servicios || []; } catch (e) { servicios = []; }
+  try { servicios = leerConfig_().servicios || []; } catch (e) { servicios = []; }
 
   if (!metodos.length) metodos = ['Efectivo', 'Nequi', 'Daviplata', 'Transferencia', 'Tarjeta'];
   if (!estados.length) estados = ['Atendido', 'No asistió', 'Cancelado'];
@@ -581,7 +606,7 @@ function getOpcionesCierre() {
 
 /** Lista de productos desde la hoja Inventario: [{nombre, precio}]. */
 function _productosCatalogo_() {
-  var hi = libro().getSheetByName('Inventario');
+  var hi = libro_().getSheetByName('Inventario');
   var out = [];
   if (hi && hi.getLastRow() >= 2) {
     var ancho = Math.min(8, hi.getMaxColumns());
@@ -606,14 +631,15 @@ function _productosCatalogo_() {
  * "Estado", para no tener que releer fila por fila desde el calendario.
  */
 function _estadosRegistroPorId_() {
-  var hg = libro().getSheetByName('Registro');
+  var hg = libro_().getSheetByName('Registro');
   var mapa = {};
   if (!hg || hg.getLastRow() < 2) return mapa;
-  var datos = hg.getRange(2, 1, hg.getLastRow() - 1, 16).getValues(); // hasta col 16 = Notas
+  // Solo cols 12 (Estado) a 16 (Notas): el calendario lo llama en cada carga.
+  var datos = hg.getRange(2, 12, hg.getLastRow() - 1, 5).getValues();
   datos.forEach(function (f) {
-    var nota = String(f[15] || '').trim();
+    var nota = String(f[4] || '').trim();
     if (nota.indexOf('Cita ') !== 0) return;
-    mapa[nota.substring(5).trim()] = String(f[11] || '').trim(); // col 12 = Estado
+    mapa[nota.substring(5).trim()] = String(f[0] || '').trim();
   });
   return mapa;
 }
@@ -657,7 +683,7 @@ function cerrarServicioDashboard(token, id, datos) {
 
   try {
     id = String(id || '').trim();
-    var hg = libro().getSheetByName('Registro');
+    var hg = libro_().getSheetByName('Registro');
     if (!hg) return { ok: false, error: 'No existe la hoja Registro.' };
 
     // Asegurar columna 22 "Productos"
@@ -700,12 +726,12 @@ function cerrarServicioDashboard(token, id, datos) {
     // --- Servicios realmente hechos ---
     // Si el barbero los corrigió en el modal, se reescriben aquí ANTES del
     // descuento, porque cambian el valor sobre el que se calcula el Total.
-    var hres = libro().getSheetByName(HOJA_RESERVAS);
+    var hres = libro_().getSheetByName(HOJA_RESERVAS);
     var res = _filaReserva_(hres, id);
     var valorServ = Number(hg.getRange(fila, 7).getValue()) || 0;
 
     if (datos.servicios && datos.servicios.length) {
-      var combo = _combinarServicios_(leerConfig(), datos.servicios);
+      var combo = _combinarServicios_(leerConfig_(), datos.servicios);
       if (!combo.ok) return { ok: false, error: combo.error };
 
       hg.getRange(fila, 6).setValue(combo.nombre);
@@ -731,19 +757,19 @@ function cerrarServicioDashboard(token, id, datos) {
         ? combo.duracion
         : (Number(res.f[7]) || 0);           // col8 Reservas = Duración
 
-      if (aISO(res.f[2]) === hoyISO()) {      // col3 Reservas = Fecha
-        var iniMin = aMin(aHHMM(res.f[3]));   // col4 Reservas = Hora inicio
+      if (aISO_(res.f[2]) === hoyISO_()) {      // col3 Reservas = Fecha
+        var iniMin = aMin_(aHHMM_(res.f[3]));   // col4 Reservas = Hora inicio
         if (iniMin !== null && duracionFinal > 0) {
           var finPlaneadoMin = iniMin + duracionFinal;
-          var ahoraMinActual = ahoraMin();
+          var ahoraMinActual = ahoraMin_();
           if (ahoraMinActual > iniMin && ahoraMinActual < finPlaneadoMin) {
-            hres.getRange(res.fila, 5).setValue(aTexto(ahoraMinActual)); // col5 = Hora fin
+            hres.getRange(res.fila, 5).setValue(aTexto_(ahoraMinActual)); // col5 = Hora fin
           }
         }
       }
     }
 
-    // Descuento (pesos) — recalcula el Total cobrado (col 9 = valor − descuento)
+    // Descuento (pesos_) — recalcula el Total cobrado (col 9 = valor − descuento)
     var desc = Number(datos.descuento);
     if (isNaN(desc) || desc < 0) desc = 0;
     hg.getRange(fila, 8).setValue(desc);
@@ -763,7 +789,7 @@ function cerrarServicioDashboard(token, id, datos) {
     _asegurarColValorProductos_(hg);
     hg.getRange(fila, COL_VALOR_PROD).setValue(_valorProductos_(nuevoProd));
 
-    var hi = libro().getSheetByName('Inventario');
+    var hi = libro_().getSheetByName('Inventario');
     if (hi) actualizarInventario_(hi, _deltaProductos_(nuevoProd, viejoProd));
 
     // Asegurar las fórmulas de comisión / pago / neto (misma que volcarAutomatico_,
@@ -774,9 +800,9 @@ function cerrarServicioDashboard(token, id, datos) {
     // Dejar marcado en Google Calendar que esta cita ya se cerró.
     if (estado && res) {
       var resumen = String(hg.getRange(fila, 6).getValue()).trim() +
-        ' · ' + pesos(Math.max(valorServ - desc, 0)) +
+        ' · ' + pesos_(Math.max(valorServ - desc, 0)) +
         (metodo ? ' · ' + metodo : '') +
-        (propina > 0 ? ' · propina ' + pesos(propina) : '');
+        (propina > 0 ? ' · propina ' + pesos_(propina) : '');
       try {
         marcarEventoCerrado_(barberoFila, String(res.f[COL_EVENTO - 1] || '').trim(),
                              estado, resumen);
@@ -786,8 +812,8 @@ function cerrarServicioDashboard(token, id, datos) {
     var salida = { ok: true };
     if (datos.desde && datos.hasta) {
       SpreadsheetApp.flush();
-      salida.dashboard = getDatosDashboard(
-        barberoFila, datos.desde, datos.hasta, s.rol === 'Dueño');
+      salida.dashboard = datosDashboard_(
+        s.nombre, datos.desde, datos.hasta, s.rol === 'Dueño');
     }
     return salida;
 
@@ -802,7 +828,7 @@ function cerrarServicioDashboard(token, id, datos) {
 function traerCitasDeHoy(token) {
   try { _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
   try {
-    return { ok: true, n: volcarAutomatico() };
+    return { ok: true, n: volcarConCandado_() };
   } catch (e) {
     return { ok: false, error: e.message };
   }
@@ -815,7 +841,7 @@ function traerCitasDeHoy(token) {
 /** Nombres de los barberos REALES: Config + hoja Barberos, menos el calendario general y el/los dueño(s). */
 function _barberosReales_() {
   var bs = {};
-  try { bs = leerBarberos(); } catch (e) { bs = {}; }
+  try { bs = leerBarberos_(); } catch (e) { bs = {}; }
   function esDueno(n) { return bs[n] && _rolDe_(bs[n].rol) === 'Dueño'; }
 
   var set = {}, lista = [];
@@ -825,7 +851,7 @@ function _barberosReales_() {
     if (n === CALENDARIO_GENERAL || esDueno(n)) return;
     set[n] = 1; lista.push(n);
   }
-  try { leerConfig().barberos.forEach(function (b) { agregar(b.nombre); }); } catch (e) {}
+  try { leerConfig_().barberos.forEach(function (b) { agregar(b.nombre); }); } catch (e) {}
   Object.keys(bs).forEach(agregar);
   return lista;
 }
@@ -853,7 +879,7 @@ function getFormularioCita(token) {
  */
 function getClientesDashboard(token) {
   try { _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
-  var h = libro().getSheetByName(HOJA_RESERVAS);
+  var h = libro_().getSheetByName(HOJA_RESERVAS);
   if (!h || h.getLastRow() < 2) return { ok: true, clientes: [] };
 
   // 0:ID 2:Fecha 5:Barbero 6:Servicio 9:Cliente 10:Teléfono 11:Correo 12:Estado
@@ -864,7 +890,7 @@ function getClientesDashboard(token) {
     var tel = String(f[10] || '').replace(/\D/g, '');
     if (!nombre || nombre === CLIENTE_SIN_NOMBRE || tel.length < 7) return;
     var clave = tel.slice(-10);
-    var iso = aISO(f[2]) || '';
+    var iso = aISO_(f[2]) || '';
     var c = mapa[clave];
     if (!c) c = mapa[clave] = { nombre: '', telefono: tel, email: '', visitas: 0, ultima: '' };
     if (String(f[12] || '').trim() !== 'Cancelada') c.visitas++;
@@ -886,7 +912,7 @@ var CLIENTE_SIN_NOMBRE = 'Sin nombre';
 
 /** "Ahora" redondeado hacia abajo al múltiplo de PASO_MIN. */
 function _horaAhoraRedondeada_() {
-  return aTexto(Math.floor(ahoraMin() / PASO_MIN) * PASO_MIN);
+  return aTexto_(Math.floor(ahoraMin_() / PASO_MIN) * PASO_MIN);
 }
 
 /**
@@ -895,18 +921,18 @@ function _horaAhoraRedondeada_() {
  * @returns { ok } o { ok:false, error }
  */
 function _validarFranja_(barbero, iso, hhmm, duracion, excluirId) {
-  var ini = aMin(hhmm);
+  var ini = aMin_(hhmm);
   if (ini === null) return { ok: false, error: 'Hora no válida.' };
   var fin = ini + (Number(duracion) || 0);
 
-  var hor = leerHorarios()[barbero];
-  var h = hor && hor[diaSemana(iso)];
+  var hor = leerHorarios_()[barbero];
+  var h = hor && hor[diaSemana_(iso)];
   if (!h) return { ok: false, error: barbero + ' no trabaja ese día.' };
-  var abre = aMin(h.abre), cierra = aMin(h.cierra);
+  var abre = aMin_(h.abre), cierra = aMin_(h.cierra);
   if (abre !== null && cierra !== null && (ini < abre || fin > cierra)) {
     return { ok: false, error: 'Fuera del horario de ' + barbero + ' (' + h.abre + '–' + h.cierra + ').' };
   }
-  var choca = ocupacion(barbero, iso, excluirId).some(function (b) { return ini < b.fin && fin > b.ini; });
+  var choca = ocupacion_(barbero, iso, excluirId).some(function (b) { return ini < b.fin && fin > b.ini; });
   if (choca) return { ok: false, error: barbero + ' ya tiene una cita a esa hora.' };
   return { ok: true };
 }
@@ -919,10 +945,10 @@ function getAgendaDashboard(token, dias) {
   var s = _sesion(token);
   dias = Number(dias) || 7;
 
-  var h = libro().getSheetByName(HOJA_RESERVAS);
+  var h = libro_().getSheetByName(HOJA_RESERVAS);
   if (!h || h.getLastRow() < 2) return { citas: [] };
 
-  var hoy = hoyISO();
+  var hoy = hoyISO_();
   var limite = Utilities.formatDate(new Date(Date.now() + dias * 86400000), TZ, 'yyyy-MM-dd');
   var datos = h.getRange(2, 1, h.getLastRow() - 1, 16).getValues();
   var citas = [];
@@ -931,13 +957,13 @@ function getAgendaDashboard(token, dias) {
     var id = String(f[0]).trim();
     if (!id) return;
     if (String(f[12]).trim() !== 'Confirmada') return;
-    var iso = aISO(f[2]);
+    var iso = aISO_(f[2]);
     if (!iso || iso < hoy || iso > limite) return;
     var barbero = String(f[5]).trim();
     if (s.rol !== 'Dueño' && barbero !== s.nombre) return;
 
     citas.push({
-      id: id, fecha: iso, hora: aHHMM(f[3]), fin: aHHMM(f[4]),
+      id: id, fecha: iso, hora: aHHMM_(f[3]), fin: aHHMM_(f[4]),
       barbero: barbero, servicio: String(f[6]).trim(), precio: Number(f[8]) || 0,
       cliente: String(f[9]).trim(), telefono: String(f[10]).trim(),
       notas: String(f[13]).trim(), estado: String(f[12]).trim()
@@ -965,8 +991,12 @@ function getAgendaDashboard(token, dias) {
  *                      calendarOmitido, citas[] } o { ok:false, error }
  */
 function getCalendarioDashboard(token, desde, hasta) {
+  // Medición de tiempos por paso (se ve en el dashboard y en Ejecuciones).
+  var t0 = Date.now(), tiempos = {};
+  function marca(paso) { tiempos[paso] = Date.now() - t0; }
   var s;
   try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  marca('sesion');
 
   desde = String(desde || '').slice(0, 10);
   hasta = String(hasta || '').slice(0, 10);
@@ -974,29 +1004,24 @@ function getCalendarioDashboard(token, desde, hasta) {
     return { ok: false, error: 'Rango de fechas no válido.' };
   }
 
-  // Antes de pintar: que Reservas cuadre con el Registro (lo que sale en el
-  // Resumen). Si otro proceso tiene el candado, se salta: la rutina de 15 min
-  // lo hará igual.
-  try {
-    var lockSync = LockService.getScriptLock();
-    if (lockSync.tryLock(5000)) {
-      try { sincronizarReservasConRegistro_(); } finally { lockSync.releaseLock(); }
-    }
-  } catch (e) { console.error('sync calendario: ' + e); }
+  // La sincronización Reservas ↔ Registro NO corre aquí (hacía lento abrir el
+  // calendario): la hace la rutina de 15 min y el menú de la hoja.
 
   var esDueno = (s.rol === 'Dueño');
   var barberos = esDueno ? _barberosReales_() : [s.nombre];
-  var horariosTodos = leerHorarios();
+  var horariosTodos = leerHorarios_();
+  marca('config');
 
   // --- Citas (una sola lectura de Reservas para todo el rango) ---
   var estados = _estadosRegistroPorId_();
+  marca('registro');
   var citas = [];
-  var hr = libro().getSheetByName(HOJA_RESERVAS);
+  var hr = libro_().getSheetByName(HOJA_RESERVAS);
   if (hr && hr.getLastRow() > 1) {
     hr.getRange(2, 1, hr.getLastRow() - 1, 16).getValues().forEach(function (f) {
       var id = String(f[0]).trim();
       if (!id) return;
-      var iso = aISO(f[2]);
+      var iso = aISO_(f[2]);
       if (!iso || iso < desde || iso > hasta) return;
       var barbero = String(f[5]).trim();
       if (!barbero) return;
@@ -1009,7 +1034,7 @@ function getCalendarioDashboard(token, desde, hasta) {
       }
 
       citas.push({
-        id: id, fecha: iso, hora: aHHMM(f[3]), fin: aHHMM(f[4]),
+        id: id, fecha: iso, hora: aHHMM_(f[3]), fin: aHHMM_(f[4]),
         duracion: Number(f[7]) || 0, barbero: barbero,
         servicio: String(f[6]).trim(), precio: Number(f[8]) || 0,
         cliente: String(f[9]).trim(), telefono: String(f[10]).trim(),
@@ -1027,37 +1052,37 @@ function getCalendarioDashboard(token, desde, hasta) {
   var horarios = {};
   barberos.forEach(function (n) { if (horariosTodos[n]) horarios[n] = horariosTodos[n]; });
 
+  marca('reservas');
+
   // --- Bloqueos (una sola lectura) ---
   var bloqueos = [];
-  var hb = libro().getSheetByName(HOJA_BLOQUEOS);
-  if (hb && hb.getLastRow() > 1) {
-    hb.getRange(2, 1, hb.getLastRow() - 1, 5).getValues().forEach(function (f) {
-      var iso = aISO(f[1]);
-      if (!iso || iso < desde || iso > hasta) return;
-      var quien = String(f[0]).trim();
-      if (quien && quien !== 'Todos' && barberos.indexOf(quien) < 0) return;
-      bloqueos.push({
-        barbero: quien, fecha: iso,
-        desde: aHHMM(f[2]), hasta: aHHMM(f[3]),
-        motivo: String(f[4]).trim()
-      });
-    });
-  }
+  leerBloqueos_().forEach(function (b) {
+    if (b.fecha < desde || b.fecha > hasta) return;
+    if (b.quien && b.quien !== 'Todos' && barberos.indexOf(b.quien) < 0) return;
+    bloqueos.push({ barbero: b.quien, fecha: b.fecha, desde: b.desde, hasta: b.hasta, motivo: b.motivo });
+  });
 
   // --- Eventos manuales de Google Calendar: solo para rangos cortos (día/semana). ---
   // En vista mes se omiten (el mes solo necesita el conteo de citas por día).
-  var dias = Math.round((aFechaHora(hasta, '00:00') - aFechaHora(desde, '00:00')) / 86400000) + 1;
+  var dias = Math.round((aFechaHora_(hasta, '00:00') - aFechaHora_(desde, '00:00')) / 86400000) + 1;
   var eventosManuales = {}, calendarOmitido = true;
 
   if (USAR_CALENDARIO && dias <= 8) {
     calendarOmitido = false;
-    var bs = leerBarberos();
-    var desdeFecha = aFechaHora(desde, '00:00');
-    var hastaFecha = new Date(aFechaHora(hasta, '00:00').getTime() + 86400000);
+    var bs = leerBarberos_();
+    var desdeFecha = aFechaHora_(desde, '00:00');
+    var hastaFecha = new Date(aFechaHora_(hasta, '00:00').getTime() + 86400000);
 
+    var cacheEv = CacheService.getScriptCache();
     barberos.forEach(function (nombre) {
       var b = bs[nombre];
       if (!b || !b.calendario) return;
+      // Leer Calendar es lento (~1 s por barbero): se guarda 5 minutos.
+      var claveEv = 'evman|' + nombre + '|' + desde + '|' + hasta;
+      var guardado = cacheEv.get(claveEv);
+      if (guardado) {
+        try { eventosManuales[nombre] = JSON.parse(guardado); return; } catch (e) {}
+      }
       eventosManuales[nombre] = [];
       try {
         var cal = CalendarApp.getCalendarById(b.calendario);
@@ -1078,19 +1103,23 @@ function getCalendarioDashboard(token, desde, hasta) {
             titulo: ev.getTitle()
           });
         });
+        try { cacheEv.put(claveEv, JSON.stringify(eventosManuales[nombre]), 300); } catch (e) {}
       } catch (err) { /* si el calendario falla, el resto del calendario sigue funcionando */ }
     });
   }
 
+  marca('total');
+  console.log('getCalendarioDashboard ms: ' + JSON.stringify(tiempos));
   return {
     ok: true,
-    hoy: hoyISO(),
+    hoy: hoyISO_(),
     barberos: barberos,
     horarios: horarios,
     bloqueos: bloqueos,
     eventosManuales: eventosManuales,
     calendarOmitido: calendarOmitido,
-    citas: citas
+    citas: citas,
+    tiempos: tiempos
   };
 }
 
@@ -1104,7 +1133,7 @@ function crearCitaDashboard(token, d) {
   try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
 
   d = d || {};
-  var cfg = leerConfig();
+  var cfg = leerConfig_();
   var combo = _combinarServicios_(cfg, d.servicios || d.servicio);
   if (!combo.ok) return { ok: false, error: combo.error };
 
@@ -1136,7 +1165,7 @@ function crearCitaDashboard(token, d) {
 
     if (modo === 'agendar') {
       fecha = String(d.fecha || '').slice(0, 10);
-      hora  = aHHMM(d.hora);
+      hora  = aHHMM_(d.hora);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !hora) {
         return { ok: false, error: 'Falta el día o la hora.' };
       }
@@ -1148,8 +1177,8 @@ function crearCitaDashboard(token, d) {
     } else {
       if (!barbero || barbero === '*') return { ok: false, error: 'Elige el barbero.' };
       fecha = String(d.fecha || '').slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) fecha = hoyISO();
-      hora = aHHMM(d.hora) || _horaAhoraRedondeada_();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) fecha = hoyISO_();
+      hora = aHHMM_(d.hora) || _horaAhoraRedondeada_();
       asignado = barbero;
 
       // El modo "Ahora" también respeta el horario del barbero, salvo forzar.
@@ -1161,7 +1190,7 @@ function crearCitaDashboard(token, d) {
 
     var r = {
       id: nuevoIdCita_(),
-      fecha: fecha, hora: hora, fin: aTexto(aMin(hora) + combo.duracion),
+      fecha: fecha, hora: hora, fin: aTexto_(aMin_(hora) + combo.duracion),
       barbero: asignado,
       servicio: combo.nombre, precio: combo.precio, duracion: combo.duracion,
       nombre: cliente, telefono: tel, notas: String(d.notas || '').trim()
@@ -1185,7 +1214,7 @@ function getCitaDashboard(token, id) {
   var s = _sesion(token);
   id = String(id || '').trim();
 
-  var h = libro().getSheetByName(HOJA_RESERVAS);
+  var h = libro_().getSheetByName(HOJA_RESERVAS);
   if (!h || h.getLastRow() < 2) return null;
   var datos = h.getRange(2, 1, h.getLastRow() - 1, 16).getValues();
 
@@ -1198,7 +1227,7 @@ function getCitaDashboard(token, id) {
     var filaReg = idsEnRegistro_()[id];
     var estadoReg = '', metodoReg = '', propinaReg = 0, descuentoReg = 0, productosReg = {};
     if (filaReg) {
-      var hg = libro().getSheetByName('Registro');
+      var hg = libro_().getSheetByName('Registro');
       estadoReg    = String(hg.getRange(filaReg, 12).getValue()).trim();
       metodoReg    = String(hg.getRange(filaReg, 11).getValue()).trim();
       propinaReg   = Number(hg.getRange(filaReg, 10).getValue()) || 0;
@@ -1206,7 +1235,7 @@ function getCitaDashboard(token, id) {
       productosReg = _productosDeFila_(hg, filaReg);
     }
     return {
-      id: id, fecha: aISO(f[2]), hora: aHHMM(f[3]), fin: aHHMM(f[4]),
+      id: id, fecha: aISO_(f[2]), hora: aHHMM_(f[3]), fin: aHHMM_(f[4]),
       barbero: barbero, servicio: String(f[6]).trim(),
       duracion: Number(f[7]) || 0, precio: Number(f[8]) || 0,
       cliente: String(f[9]).trim(), telefono: String(f[10]).trim(),
@@ -1239,7 +1268,7 @@ function modificarCitaDashboard(token, id, cambios) {
   catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
 
   try {
-    var h = libro().getSheetByName(HOJA_RESERVAS);
+    var h = libro_().getSheetByName(HOJA_RESERVAS);
     if (!h || h.getLastRow() < 2) return { ok: false, error: 'No encontramos esa cita.' };
     var datos = h.getRange(2, 1, h.getLastRow() - 1, 16).getValues();
 
@@ -1256,14 +1285,14 @@ function modificarCitaDashboard(token, id, cambios) {
         return { ok: false, error: 'Esa cita ya está cancelada.' };
       }
 
-      var hg = libro().getSheetByName('Registro');
+      var hg = libro_().getSheetByName('Registro');
       var filaReg = idsEnRegistro_()[id];
       var estadoReg = filaReg ? String(hg.getRange(filaReg, 12).getValue()).trim() : '';
       if (estadoReg === 'Atendido') {
         return { ok: false, error: 'Esa cita ya se cerró. Para corregir el valor usa la pantalla de cierre.' };
       }
 
-      var cfg = leerConfig();
+      var cfg = leerConfig_();
       var combo;
       if (cambios.servicios && cambios.servicios.length) {
         // El barbero eligió servicios nuevos: deben existir en Config.
@@ -1280,8 +1309,8 @@ function modificarCitaDashboard(token, id, cambios) {
         }
       }
 
-      var fecha   = cambios.fecha ? String(cambios.fecha).slice(0, 10) : aISO(f[2]);
-      var hora    = cambios.hora ? aHHMM(cambios.hora) : aHHMM(f[3]);
+      var fecha   = cambios.fecha ? String(cambios.fecha).slice(0, 10) : aISO_(f[2]);
+      var hora    = cambios.hora ? aHHMM_(cambios.hora) : aHHMM_(f[3]);
       var barbero = cambios.barbero ? String(cambios.barbero).trim() : barberoViejo;
       var cliente = (cambios.cliente != null && cambios.cliente !== '')
                     ? String(cambios.cliente).trim() : String(f[9]).trim();
@@ -1299,7 +1328,7 @@ function modificarCitaDashboard(token, id, cambios) {
         if (!chk.ok) return { ok: false, error: chk.error };
       }
 
-      var finTxt = aTexto(aMin(hora) + combo.duracion);
+      var finTxt = aTexto_(aMin_(hora) + combo.duracion);
       var r = {
         id: id, fecha: fecha, hora: hora, fin: finTxt, barbero: barbero,
         servicio: combo.nombre, precio: combo.precio, duracion: combo.duracion,
@@ -1319,17 +1348,17 @@ function modificarCitaDashboard(token, id, cambios) {
       h.getRange(fila, 14).setValue(notas);
 
       // Calendario: borrar el viejo, crear el nuevo
-      try { borrarEvento(barberoViejo, String(f[14] || '').trim()); } catch (e) {}
+      try { borrarEvento_(barberoViejo, String(f[14] || '').trim()); } catch (e) {}
       var idEvento = '';
-      try { idEvento = crearEvento(r); } catch (e) {}
+      try { idEvento = crearEvento_(r); } catch (e) {}
       h.getRange(fila, COL_EVENTO).setValue(idEvento || '');
 
-      var link = linkAvisoBarbero(r);
+      var link = linkAvisoBarbero_(r);
       h.getRange(fila, COL_AVISO).setFormula(
         link ? '=HYPERLINK("' + link + '";"Avisar a ' + r.barbero + '")' : '');
 
       var avisar = !(cambios.mover && s.nombre === barbero && barberoViejo === barbero);
-      if (avisar) { try { notificarBarbero(r, 'modificada'); } catch (e) {} }
+      if (avisar) _encolar_({ k: 'aviso', r: r, tipo: 'modificada' });   // se envía después de responder
 
       // Registro (si está y no Atendido)
       if (filaReg) {
@@ -1402,24 +1431,24 @@ function eliminarCitaDashboard(token, id) {
     var encontrada = false;
 
     // 1. Registro: devolver productos al inventario y borrar la fila
-    var hg = libro().getSheetByName('Registro');
+    var hg = libro_().getSheetByName('Registro');
     var filaReg = idsEnRegistro_()[id];
     if (hg && filaReg) {
       var prod = _productosDeFila_(hg, filaReg);
-      var hi = libro().getSheetByName('Inventario');
+      var hi = libro_().getSheetByName('Inventario');
       if (hi) actualizarInventario_(hi, _deltaProductos_({}, prod));
       hg.deleteRow(filaReg);
       encontrada = true;
     }
 
     // 2. Reservas + evento de Calendar
-    var h = libro().getSheetByName(HOJA_RESERVAS);
+    var h = libro_().getSheetByName(HOJA_RESERVAS);
     if (h && h.getLastRow() >= 2) {
       var datos = h.getRange(2, 1, h.getLastRow() - 1, COL_EVENTO).getValues();
       for (var i = datos.length - 1; i >= 0; i--) {
         if (String(datos[i][0]).trim() !== id) continue;
         var idEvento = String(datos[i][COL_EVENTO - 1] || '').trim();
-        if (idEvento) { try { borrarEvento(String(datos[i][5]).trim(), idEvento); } catch (e) {} }
+        if (idEvento) { try { borrarEvento_(String(datos[i][5]).trim(), idEvento); } catch (e) {} }
         h.deleteRow(i + 2);
         encontrada = true;
       }
@@ -1440,7 +1469,7 @@ function notificarCitaDashboard(token, id) {
   try { _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
   var c = getCitaDashboard(token, id);
   if (!c || c.error) return { ok: false, error: (c && c.error) || 'No encontramos esa cita.' };
-  var link = linkAvisoBarbero({
+  var link = linkAvisoBarbero_({
     id: c.id, barbero: c.barbero, servicio: c.servicio, fecha: c.fecha,
     hora: c.hora, fin: c.fin, duracion: c.duracion, precio: c.precio,
     nombre: c.cliente, telefono: c.telefono, notas: c.notas
@@ -1469,7 +1498,7 @@ function _sesionDueno_(token) {
  */
 function getInventarioDashboard(token) {
   _sesionDueno_(token);
-  var hi = libro().getSheetByName('Inventario');
+  var hi = libro_().getSheetByName('Inventario');
   if (!hi || hi.getLastRow() < 2) return { productos: [] };
   _asegurarColAjustes_(hi);
 
@@ -1523,13 +1552,13 @@ function ajustarStockDashboard(token, producto, cantidad) {
   var lock = LockService.getScriptLock();
   try { lock.waitLock(15000); } catch (e) { return { ok: false, error: 'Intenta de nuevo.' }; }
   try {
-    var hi = libro().getSheetByName('Inventario');
+    var hi = libro_().getSheetByName('Inventario');
     if (!hi || hi.getLastRow() < 2) return { ok: false, error: 'No hay inventario.' };
     _asegurarColAjustes_(hi);
     var filas = hi.getRange(2, 1, hi.getLastRow() - 1, 9).getValues();
     for (var i = 0; i < filas.length; i++) {
       var f = filas[i];
-      if (normalizar(f[0]) !== normalizar(producto)) continue;
+      if (normalizar_(f[0]) !== normalizar_(producto)) continue;
       var fila = i + 2;
       var sinAjuste = (Number(f[1]) || 0) + (Number(f[2]) || 0) - (Number(f[3]) || 0) - (Number(f[4]) || 0);
       hi.getRange(fila, 9).setValue(cantidad - sinAjuste);
@@ -1571,13 +1600,13 @@ function crearProductoDashboard(token, datos) {
   var lock = LockService.getScriptLock();
   try { lock.waitLock(15000); } catch (e) { return { ok: false, error: 'Intenta de nuevo.' }; }
   try {
-    var hi = libro().getSheetByName('Inventario');
+    var hi = libro_().getSheetByName('Inventario');
     if (!hi) return { ok: false, error: 'No existe la hoja Inventario. Corre "Configurar inventario" desde el menú.' };
 
     // ¿ya existe?
     var filas = hi.getLastRow() >= 2 ? hi.getRange(2, 1, hi.getLastRow() - 1, 1).getValues() : [];
     for (var i = 0; i < filas.length; i++) {
-      if (normalizar(filas[i][0]) === normalizar(nombre)) {
+      if (normalizar_(filas[i][0]) === normalizar_(nombre)) {
         return { ok: false, error: 'Ya existe un producto "' + String(filas[i][0]).trim() + '".' };
       }
     }
@@ -1601,15 +1630,85 @@ function setPrecioProductoDashboard(token, producto, precio) {
   precio = Number(precio);
   if (isNaN(precio) || precio < 0) return { ok: false, error: 'Precio inválido.' };
 
-  var hi = libro().getSheetByName('Inventario');
+  var hi = libro_().getSheetByName('Inventario');
   if (!hi || hi.getLastRow() < 2) return { ok: false, error: 'No hay inventario.' };
   var filas = hi.getRange(2, 1, hi.getLastRow() - 1, 1).getValues();
   for (var i = 0; i < filas.length; i++) {
-    if (normalizar(filas[i][0]) === normalizar(producto)) {
+    if (normalizar_(filas[i][0]) === normalizar_(producto)) {
       hi.getRange(i + 2, 8).setValue(precio);
       SpreadsheetApp.flush();
       return { ok: true, inventario: getInventarioDashboard(token) };
     }
   }
   return { ok: false, error: 'No encontré ese producto.' };
+}
+
+// ================================================================
+//  TELEGRAM — conectar cada usuario desde el dashboard
+//  (la parte que manda los avisos está en Codigo.gs)
+// ================================================================
+
+/** Estado de Telegram para el usuario de la sesión. */
+function getTelegramDashboard(token) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  if (!_tgActivo_()) return { ok: true, configurado: false };
+  return { ok: true, configurado: true, conectado: !!_tgChats_()[s.nombre],
+           bot: PropertiesService.getScriptProperties().getProperty(TG_PROP_BOT) || '' };
+}
+
+/**
+ * Link para conectar: https://t.me/<bot>?start=<código>. El código es de un
+ * solo uso, dura 30 minutos y queda atado al nombre de quien lo pidió.
+ */
+function linkTelegramDashboard(token) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  if (!_tgActivo_()) return { ok: false, error: 'Telegram todavía no está configurado. Pídele al administrador que lo active.' };
+  var bot = PropertiesService.getScriptProperties().getProperty(TG_PROP_BOT);
+  if (!bot) {
+    var yo = _tgApi_('getMe', {});
+    if (!yo || !yo.username) return { ok: false, error: 'No se pudo hablar con Telegram. Intenta en un momento.' };
+    bot = yo.username;
+    PropertiesService.getScriptProperties().setProperty(TG_PROP_BOT, bot);
+  }
+  // 6 números: sirve en el enlace (/start CODIGO) y para escribírselo al bot a
+  // mano si el enlace no pasa el código (pasa en algunos celulares).
+  var cache = CacheService.getScriptCache(), codigo = '';
+  for (var i = 0; i < 5; i++) {
+    codigo = String(Math.floor(100000 + Math.random() * 900000));
+    if (!cache.get('tgcode_' + codigo)) break;
+  }
+  cache.put('tgcode_' + codigo, s.nombre, 1800);
+  return { ok: true, codigo: codigo, bot: bot, link: 'https://t.me/' + bot + '?start=' + codigo };
+}
+
+/** Después de tocar "Iniciar" en Telegram: procesa los mensajes y confirma. */
+function verificarTelegramDashboard(token) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' };
+  try { _tgProcesarUpdates_(); } finally { lock.releaseLock(); }
+  return { ok: true, conectado: !!_tgChats_()[s.nombre] };
+}
+
+/** Mensaje de prueba solo para quien lo pide. */
+function probarTelegramDashboard(token) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  var chat = _tgChats_()[s.nombre];
+  if (!chat) return { ok: false, error: 'Todavía no has conectado Telegram.' };
+  return _tgEnviar_(chat, '🔔 Hola ' + _tgEsc_(s.nombre) + ', así te van a llegar los avisos.')
+    ? { ok: true } : { ok: false, error: 'Telegram no respondió. ¿Bloqueaste o borraste el chat del bot?' };
+}
+
+/** Deja de recibir avisos en Telegram. */
+function desconectarTelegramDashboard(token) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  var chats = _tgChats_();
+  delete chats[s.nombre];
+  _tgGuardarChats_(chats);
+  return { ok: true };
 }

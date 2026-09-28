@@ -71,6 +71,7 @@ function cancelar(){
   google.script.run.withSuccessHandler(function(r){
     var z = document.getElementById('zona');
     if (!r.ok){ z.innerHTML = '<div class="error">'+esc(r.error)+'</div>'; return; }
+    google.script.run.withFailureHandler(function(){}).procesarPendientes();   // aviso al barbero, por detrás
     z.innerHTML = '<h2>Cita cancelada</h2><div class="msj">Listo, ' + esc(r.reserva.nombre) +
       '. Liberamos tu cupo del ' + esc(r.reserva.fecha) + ' a las ' + esc(r.reserva.hora) + '.<br><br>' +
       'Cuando quieras volver, aquí estamos.</div>';

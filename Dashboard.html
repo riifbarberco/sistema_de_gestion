@@ -63,6 +63,11 @@
     font-size: 13px;
   }
   .btn-logout:hover { border-color: var(--gold-dim); color: var(--gold); }
+  .header .btn-logout { white-space: nowrap; }
+  @media (max-width: 420px) {
+    .btn-logout .txt-largo { display: none; }
+    .header .btn-logout { padding-left: 10px; padding-right: 10px; }
+  }
 
   /* ──── LOGIN ──── */
   #login-screen {
@@ -818,7 +823,7 @@
 <div id="login-screen">
   <div class="login-box">
     <div class="marca-login"><?!= include('Logo') ?></div>
-    <div style="text-align:center;font-size:11px;color:var(--text-muted);margin:-4px 0 10px;">versión 24-sep · v12</div>
+    <div style="text-align:center;font-size:11px;color:var(--text-muted);margin:-4px 0 10px;">versión 28-sep · v22</div>
     <div class="sub">Dashboard</div>
 
     <label>¿Quién eres?</label>
@@ -842,9 +847,10 @@
 <!-- DASHBOARD PRINCIPAL -->
 <div id="dashboard-screen">
   <div class="header">
-    <div class="marca-header"><?!= include('Logo') ?><b>Dashboard</b></div>
+    <div class="marca-header"><span id="logo-header"></span><b>Dashboard</b></div>
     <div style="display:flex;gap:8px;">
-      <button class="btn-logout" onclick="abrirCambiarPin()">Cambiar PIN</button>
+      <button class="btn-logout" onclick="abrirTelegram()" title="Avisos por Telegram" aria-label="Avisos por Telegram">📲<span class="txt-largo"> Telegram</span></button>
+      <button class="btn-logout" onclick="abrirCambiarPin()"><span class="txt-largo">Cambiar </span>PIN</button>
       <button class="btn-logout" onclick="salir()">Salir</button>
     </div>
   </div>
@@ -962,6 +968,7 @@
         <button class="btn-primary" style="margin-left:auto;padding:8px 16px;" onclick="abrirNuevaCita()">＋</button>
       </div>
       <div id="cal-area"><div class="spinner"></div></div>
+      <div id="cal-tiempo" style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:6px;"></div>
     </section>
 
     <!-- ══════ PESTAÑA INVENTARIO (solo dueño) ══════ -->
@@ -1120,6 +1127,18 @@
   </div>
 </div>
 
+<!-- HOJA MODAL: avisos por Telegram -->
+<div class="modal-fondo" id="modal-telegram" onclick="if(event.target===this)cerrarTelegram()">
+  <div class="modal-hoja">
+    <div class="modal-agarre"></div>
+    <h3>Avisos por Telegram</h3>
+    <div class="modal-sub">Te llegan las citas nuevas, los cambios, las cancelaciones y un recordatorio 1 hora antes de cada cita. Es gratis.</div>
+    <div class="modal-error" id="tg-error"></div>
+    <div id="tg-cuerpo"><div class="spinner"></div></div>
+    <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarTelegram()">Cerrar</button>
+  </div>
+</div>
+
 <!-- HOJA MODAL: producto nuevo -->
 <div class="modal-fondo" id="modal-producto" onclick="if(event.target===this)cerrarProducto()">
   <div class="modal-hoja">
@@ -1199,7 +1218,10 @@ var CAL_PX_MIN     = 1.2;     // píxeles por minuto de la grilla de horas
 // ─────────────────────────────────────────────
 //  INICIO
 // ─────────────────────────────────────────────
+var arrancado = false;
 function arrancar() {
+  if (arrancado) return;   // se llama al cargar el script y de respaldo en onload: una sola vez
+  arrancado = true;
   try {
     var tok = sessionGet('token');
     var sesion = sessionGet('barbero');
@@ -1207,38 +1229,92 @@ function arrancar() {
       barberoActual = sesion;
       tokenActual   = tok;
       rolActual     = sessionGet('rol') || 'barbero';
-      // Refrescar el rol desde el servidor por si le cambiaron el Rol en la hoja.
+      // Se muestra de una con el rol guardado (sin esperar al servidor) y por
+      // detrás se confirma: si le cambiaron el Rol en la hoja se ajusta, y si
+      // la sesión venció se vuelve al login.
+      mostrarDashboard();
       google.script.run
         .withSuccessHandler(function(p) {
-          if (p && p.rol) { rolActual = p.rol; sessionSet('rol', rolActual); }
-          mostrarDashboard();
+          if (p && p.rol && p.rol !== rolActual) {
+            rolActual = p.rol; sessionSet('rol', rolActual);
+            aplicarRolUI();
+            calRefrescar();
+          }
         })
-        .withFailureHandler(function() { mostrarDashboard(); })
+        .withFailureHandler(function(e) {
+          if (/sesi[óo]n|venci/i.test(String((e && e.message) || e))) salir();
+        })
         .getPerfilDashboard(tokenActual);
     } else {
       cargarBarberos();
     }
   } catch (e) {
+    arrancado = false;
     var sel = document.getElementById('sel-barbero');
     if (sel) sel.innerHTML = '<option value="">Error: ' + (e && e.message || e) + '</option>';
   }
 }
-// El bloque de código está al final del body, así que el DOM ya existe:
-// arrancamos de una y también nos colgamos de onload por si acaso.
-arrancar();
+// Al volver a la app (celular: se desbloquea la pantalla, se vuelve desde otra
+// app, o el navegador la restaura de memoria) las consultas que estaban en
+// camino pudieron perderse: se recarga lo que se está viendo.
+var ocultoDesde = 0;
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden) { ocultoDesde = Date.now(); return; }
+  if (!tokenActual || !ocultoDesde || Date.now() - ocultoDesde < 30000) return;
+  ocultoDesde = 0;
+  if (tabActual === 'calendario') calRefrescar();
+  else if (tabActual === 'resumen') cargarDatos(desdeActual, hastaActual);
+});
+window.addEventListener('pageshow', function(e) {
+  if (e.persisted && tokenActual && tabActual === 'calendario') calRefrescar();
+});
+
+// El logo va una sola vez en la página (pesa ~32 KB); el del encabezado es copia.
+(function() {
+  var o = document.querySelector('.marca-login'), d = document.getElementById('logo-header');
+  if (o && d) d.innerHTML = o.innerHTML;
+})();
+// El bloque de código está al final del body, así que el DOM ya existe.
+// OJO: se arranca con setTimeout(…, 0) y NO llamando a arrancar() aquí mismo:
+// en este punto todavía no se ha ejecutado el resto del script (más abajo se
+// definen CAL_DIAS, calLote, etc.). Si el calendario guardado se pintaba ya,
+// fallaba y la consulta al servidor nunca salía (se quedaba "pensando").
+// setTimeout espera a que se termine de ejecutar TODO el script.
+setTimeout(arrancar, 0);
 window.addEventListener('load', function () {
   var sel = document.getElementById('sel-barbero');
   if (sel && /Cargando/.test(sel.textContent)) arrancar();
 });
 
+// La sesión se guarda en localStorage (sobrevive a cerrar la pestaña o que el
+// celular la mate): así no hay que volver a escribir el PIN cada vez. El token
+// igual vence a los 30 días y "Salir" lo borra.
 function sessionGet(k) {
-  try { return sessionStorage.getItem('riif_' + k) || ''; } catch(e) { return ''; }
+  try { return localStorage.getItem('riif_' + k) || sessionStorage.getItem('riif_' + k) || ''; }
+  catch(e) { return ''; }
 }
 function sessionSet(k, v) {
-  try { sessionStorage.setItem('riif_' + k, v); } catch(e) {}
+  try { localStorage.setItem('riif_' + k, v); } catch(e) {
+    try { sessionStorage.setItem('riif_' + k, v); } catch(e2) {}
+  }
 }
 function sessionDel(k) {
+  try { localStorage.removeItem('riif_' + k); } catch(e) {}
   try { sessionStorage.removeItem('riif_' + k); } catch(e) {}
+}
+
+// Copia local de lo último que se vio (calendario, resumen): se pinta al
+// instante al abrir y luego se actualiza con lo del servidor.
+function cacheLeer(clave) {
+  try { var v = localStorage.getItem('riif_c_' + clave); return v ? JSON.parse(v) : null; } catch(e) { return null; }
+}
+function cacheGuardar(clave, datos) {
+  try { localStorage.setItem('riif_c_' + clave, JSON.stringify(datos)); } catch(e) {}
+}
+function cacheBorrarTodo() {
+  try {
+    Object.keys(localStorage).forEach(function(k) { if (k.indexOf('riif_c_') === 0) localStorage.removeItem(k); });
+  } catch(e) {}
 }
 
 function cargarBarberos() {
@@ -1327,6 +1403,8 @@ function entrar() {
 
 function salir() {
   sessionDel('barbero'); sessionDel('token'); sessionDel('rol');
+  cacheBorrarTodo();
+  formulariosPrecargados = false; opcionesCierre = null; formCita = null;
   barberoActual = ''; tokenActual = ''; rolActual = 'barbero';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('dashboard-screen').style.display = 'none';
@@ -1336,6 +1414,119 @@ function salir() {
 // ─────────────────────────────────────────────
 //  CAMBIAR PIN
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+//  TELEGRAM — cada usuario conecta su propio chat
+// ─────────────────────────────────────────────
+function abrirTelegram() {
+  limpiarError('tg-error');
+  document.getElementById('tg-cuerpo').innerHTML = '<div class="spinner"></div>';
+  document.getElementById('modal-telegram').classList.add('abierto');
+  google.script.run
+    .withSuccessHandler(pintarTelegram)
+    .withFailureHandler(function() { mostrarError('tg-error', 'No se pudo consultar. Revisa tu conexión.'); })
+    .getTelegramDashboard(tokenActual);
+}
+
+function cerrarTelegram() {
+  document.getElementById('modal-telegram').classList.remove('abierto');
+}
+
+function pintarTelegram(r) {
+  var box = document.getElementById('tg-cuerpo');
+  if (!r || !r.ok) {
+    var msg = (r && r.error) || 'No se pudo consultar.';
+    if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
+    mostrarError('tg-error', msg);
+    box.innerHTML = '';
+    return;
+  }
+  if (!r.configurado) {
+    box.innerHTML = '<p style="font-size:13px;line-height:1.5;">Telegram todavía no está activado en la barbería.' +
+      (rolActual === 'Dueño'
+        ? '<br><br>En la hoja de Google: menú <b>RIIF → Configurar Telegram</b> y pega el token de @BotFather.'
+        : ' Pídele al administrador que lo active.') + '</p>';
+    return;
+  }
+  if (r.conectado) {
+    box.innerHTML = '<p style="font-size:14px;margin-bottom:14px;">✅ <b>Conectado</b> a @' + esc(r.bot) + '</p>' +
+      '<button class="btn-primary" id="tg-prueba" onclick="probarTelegramYo()">Enviarme un mensaje de prueba</button>' +
+      '<button class="btn-peligro" style="margin-top:10px;" onclick="desconectarTelegram()">Dejar de recibir avisos</button>';
+    return;
+  }
+  box.innerHTML =
+    '<ol style="font-size:13px;line-height:1.6;padding-left:18px;margin-bottom:14px;">' +
+      '<li>Instala <b>Telegram</b> en tu celular (si no lo tienes).</li>' +
+      '<li>Toca <b>Abrir el bot</b> (o busca <b>@' + esc(r.bot) + '</b> en Telegram) y toca <b>Iniciar</b>.</li>' +
+      '<li><b>Escríbele al bot este código</b> y envíalo:</li>' +
+    '</ol>' +
+    '<div id="tg-codigo" style="font-size:32px;font-weight:800;letter-spacing:6px;text-align:center;' +
+      'color:var(--gold);margin:4px 0 6px;font-variant-numeric:tabular-nums;">······</div>' +
+    '<div style="font-size:11px;color:var(--text-muted);text-align:center;margin-bottom:14px;">Vence en 30 minutos</div>' +
+    '<a class="btn-primary" id="tg-link" style="display:block;text-align:center;text-decoration:none;opacity:.5;pointer-events:none;" ' +
+      'target="_blank" rel="noopener">Preparando…</a>' +
+    '<button class="btn-sec" id="tg-verificar" style="margin-top:10px;" onclick="verificarTelegram()">Ya le envié el código</button>';
+  // El enlace se pide antes de que toque el botón: abrir una pestaña desde una
+  // respuesta del servidor la bloquearía el navegador. El enlace ya lleva el
+  // código, pero en algunos celulares no pasa: por eso también se escribe a mano.
+  google.script.run
+    .withSuccessHandler(function(l) {
+      var a = document.getElementById('tg-link');
+      if (!a) return;
+      if (!l || !l.ok) { mostrarError('tg-error', (l && l.error) || 'No se pudo preparar el código.'); return; }
+      document.getElementById('tg-codigo').textContent = l.codigo;
+      a.href = l.link;
+      a.textContent = 'Abrir el bot';
+      a.style.opacity = ''; a.style.pointerEvents = '';
+    })
+    .withFailureHandler(function() { mostrarError('tg-error', 'No se pudo preparar el código. Revisa tu conexión.'); })
+    .linkTelegramDashboard(tokenActual);
+}
+
+function verificarTelegram() {
+  var btn = document.getElementById('tg-verificar');
+  limpiarError('tg-error');
+  btn.disabled = true; btn.textContent = 'Revisando…';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false; btn.textContent = 'Ya le envié el código';
+      if (!r || !r.ok) { mostrarError('tg-error', (r && r.error) || 'No se pudo revisar.'); return; }
+      if (!r.conectado) {
+        mostrarError('tg-error', 'Todavía no llega. Revisa que le enviaste al bot el código de 6 números (tal cual) y toca de nuevo "Ya le envié el código".');
+        return;
+      }
+      abrirTelegram();
+    })
+    .withFailureHandler(function() {
+      btn.disabled = false; btn.textContent = 'Ya le envié el código';
+      mostrarError('tg-error', 'No se pudo revisar. Revisa tu conexión.');
+    })
+    .verificarTelegramDashboard(tokenActual);
+}
+
+function probarTelegramYo() {
+  var btn = document.getElementById('tg-prueba');
+  btn.disabled = true; btn.textContent = 'Enviando…';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false; btn.textContent = 'Enviarme un mensaje de prueba';
+      if (!r || !r.ok) { mostrarError('tg-error', (r && r.error) || 'No se pudo enviar.'); return; }
+      btn.textContent = '✓ Enviado, revisa Telegram';
+    })
+    .withFailureHandler(function() {
+      btn.disabled = false; btn.textContent = 'Enviarme un mensaje de prueba';
+      mostrarError('tg-error', 'No se pudo enviar. Revisa tu conexión.');
+    })
+    .probarTelegramDashboard(tokenActual);
+}
+
+function desconectarTelegram() {
+  if (!confirm('¿Dejar de recibir los avisos por Telegram?')) return;
+  google.script.run
+    .withSuccessHandler(function() { abrirTelegram(); })
+    .withFailureHandler(function() { mostrarError('tg-error', 'No se pudo. Revisa tu conexión.'); })
+    .desconectarTelegramDashboard(tokenActual);
+}
+
 function abrirCambiarPin() {
   limpiarError('cp-error');
   document.getElementById('cp-actual').value = '';
@@ -1385,37 +1576,48 @@ function mostrarDashboard() {
 
   // Saludo
   document.getElementById('saludo-nombre').textContent = '¡Hola, ' + barberoActual + '!';
-  document.getElementById('saludo-fecha').textContent  =
-    (rolActual === 'Dueño' ? 'Vista de administrador · ' : '') + fechaHoyTexto() + ' · v12';
+  aplicarRolUI();
 
-  // Opciones para la pantalla de cierre (una sola vez)
+  // Al entrar SOLO se pide el calendario (es lo que se ve). El Resumen se
+  // carga al abrir su pestaña, y los datos de los formularios se precargan
+  // cuando el calendario ya llegó (precargarFormularios), para no competir.
+  citasCargadas = false;
+  inventarioCargado = false;
+  calCargado = false;
+  anDatos = null;
+  resRef = isoHoy();
+  tabActual = '';
+  verTab('calendario');
+}
+
+/** Lo que cambia según el rol (se llama al entrar y si el rol cambia). */
+function aplicarRolUI() {
+  document.getElementById('saludo-fecha').textContent  =
+    (rolActual === 'Dueño' ? 'Vista de administrador · ' : '') + fechaHoyTexto() + ' · v22';
+  document.getElementById('tab-btn-inventario').hidden = (rolActual !== 'Dueño');
+  document.getElementById('tab-btn-analisis').hidden = false;   // cada barbero ve sus propias métricas
+  document.querySelectorAll('.solo-dueno').forEach(function(el) {
+    el.style.display = (rolActual === 'Dueño') ? '' : 'none';
+  });
+}
+
+/** Datos de los formularios (cierre y nueva cita), una vez que ya se ve el calendario. */
+var formulariosPrecargados = false;
+function precargarFormularios() {
+  if (formulariosPrecargados) return;
+  formulariosPrecargados = true;
   if (!opcionesCierre) {
     google.script.run
       .withSuccessHandler(function(o) { opcionesCierre = o; })
       .withFailureHandler(function() {})
       .getOpcionesCierre();
   }
-  // Datos para los formularios de cita (una sola vez)
   if (!formCita) {
     google.script.run
       .withSuccessHandler(function(o) { formCita = o; })
       .withFailureHandler(function() {})
       .getFormularioCita(tokenActual);
   }
-
-  // Pestaña Inventario solo para el dueño
-  document.getElementById('tab-btn-inventario').hidden = (rolActual !== 'Dueño');
-  document.getElementById('tab-btn-analisis').hidden = false;   // cada barbero ve sus propias métricas
-  document.querySelectorAll('.solo-dueno').forEach(function(el) {
-    el.style.display = (rolActual === 'Dueño') ? '' : 'none';
-  });
-
-  verTab('calendario');
-  citasCargadas = false;
-  inventarioCargado = false;
-  anDatos = null;
-  resRef = isoHoy();
-  setFiltro('hoy'); // precarga el Resumen en segundo plano para que esté listo al cambiar de pestaña
 }
 
 // ─────────────────────────────────────────────
@@ -1605,18 +1807,32 @@ function fmtFecha(iso) {
 //  CARGA DE DATOS
 // ─────────────────────────────────────────────
 function cargarDatos(desde, hasta) {
-  // Reset a spinner
-  resetUI();
+  var clave = 'res|' + barberoActual + '|' + rolActual + '|' + desde + '|' + hasta;
+  var sec = document.getElementById('tab-resumen');
+  var guardado = cacheLeer(clave);
+  if (guardado) { renderDashboard(guardado); sec.style.opacity = '.6'; }
+  else resetUI();
 
   google.script.run
     .withSuccessHandler(function(datos) {
+      sec.style.opacity = '';
+      if (datos && datos.ok === false) {
+        if (/sesi[óo]n|venci/i.test(datos.error || '')) { alert(datos.error); salir(); return; }
+        if (!guardado) document.getElementById('chart-area').innerHTML =
+          '<div class="no-data">' + esc(datos.error || 'Error al cargar datos.') + '</div>';
+        return;
+      }
+      if (desde !== desdeActual || hasta !== hastaActual) return;   // ya cambió de período
+      cacheGuardar(clave, datos);
       renderDashboard(datos);
     })
     .withFailureHandler(function(err) {
+      sec.style.opacity = '';
+      if (guardado) return;
       document.getElementById('chart-area').innerHTML =
-        '<div class="no-data">Error al cargar datos.<br><small>' + err + '</small></div>';
+        '<div class="no-data">Error al cargar datos.<br><small>' + esc(String(err)) + '</small></div>';
     })
-    .getDatosDashboard(barberoActual, desde, hasta, rolActual === 'Dueño');
+    .getDatosDashboard(tokenActual, desde, hasta);
 }
 
 function resetUI() {
@@ -2089,9 +2305,34 @@ function guardarCierre() {
 }
 
 /** Marca el calendario como desactualizado; lo recarga de una vez si está a la vista. */
+/**
+ * Pinta al instante en el calendario la cita recién creada (con los datos que
+ * devolvió el servidor). La recarga de calInvalidate la reemplaza por la real.
+ */
+function calAgregarCitaLocal(r) {
+  if (!r || !r.fecha || !r.hora || !calDatos || !calDatos.citas) return;
+  var rango = calRangoActual();
+  if (r.fecha < rango.desde || r.fecha > rango.hasta) return;
+  calDatos.citas.push({
+    id: r.id, fecha: r.fecha, hora: r.hora, fin: r.fin, duracion: r.duracion || 0,
+    barbero: r.barbero, servicio: r.servicio, precio: r.precio || 0,
+    cliente: r.nombre || '', telefono: r.telefono || '', notas: r.notas || '',
+    estadoReserva: 'Confirmada', estadoReal: ''
+  });
+  if (tabActual === 'calendario' && !calArrastre) calRender();
+}
+
+/** Manda por detrás los avisos que dejó el último cambio (correos, Telegram, Registro). */
+function despacharPendientes() {
+  google.script.run.withFailureHandler(function() {}).procesarPendientes();
+}
+
 function calInvalidate() {
   calCargado = false;
-  if (tabActual === 'calendario') calRefrescar();
+  despacharPendientes();   // todo cambio de cita pasa por aquí
+  // Después de un cambio (crear, mover, cancelar…) no se pinta la copia
+  // guardada, que ya está vieja: se deja lo que se ve hasta que llegue lo nuevo.
+  if (tabActual === 'calendario') calRefrescar(true);
 }
 
 // ═════════════════════════════════════════════
@@ -2201,24 +2442,108 @@ function calRangoActual() {
   return { desde: p[0] + '-' + p[1] + '-01', hasta: p[0] + '-' + p[1] + '-' + ('0' + ultimo).slice(-2) };
 }
 
-function calRefrescar() {
+// En el celular una llamada al servidor a veces NO vuelve nunca (la pestaña
+// pasó a segundo plano, cambió la red, se recargó…) y la pantalla se quedaba
+// "pensando". Por eso cada carga es un "lote": si en 2 s no hay respuesta se
+// lanza otra consulta igual (y otra a los 4 s y a los 8 s). La PRIMERA que
+// llegue se pinta y las demás se ignoran, así reintentar nunca hace más lento.
+var calLote = 0;
+var CAL_REINTENTOS_MS = [2000, 4000, 8000];
+
+function calRefrescar(tras_cambio) {
+  var lote = { id: ++calLote, hecho: false, enCamino: 0 };
   var area = document.getElementById('cal-area');
-  area.innerHTML = '<div class="spinner"></div>';
+  var aviso = document.getElementById('cal-tiempo');
   var r = calRangoActual();
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (!res || !res.ok) {
-        area.innerHTML = '<div class="no-data">' + esc((res && res.error) || 'No se pudo cargar el calendario.') + '</div>';
-        return;
+  var clave = 'cal|' + barberoActual + '|' + r.desde + '|' + r.hasta;
+  // Lo último que se vio de este mismo rango se pinta al instante (más
+  // transparente mientras llega lo fresco). Si no hay nada guardado, spinner.
+  var guardado = tras_cambio ? null : cacheLeer(clave);
+  var tPedido = Date.now();
+  if (tras_cambio && calDatos) {
+    guardado = calDatos;           // lo que ya está en pantalla
+    area.style.opacity = '.6';
+  } else if (guardado) {
+    calDatos = guardado;
+    calRender();
+    area.style.opacity = '.6';
+  } else {
+    area.innerHTML = '<div class="spinner"></div>';
+  }
+
+  function vigente() {
+    // Otra carga más nueva, o el usuario ya cambió de día/vista: esta no vale.
+    if (lote.hecho || lote.id !== calLote) return false;
+    var rAhora = calRangoActual();
+    return rAhora.desde === r.desde && rAhora.hasta === r.hasta;
+  }
+
+  function terminar() {
+    lote.hecho = true;
+    area.style.opacity = '';
+  }
+
+  function recibir(res) {
+    lote.enCamino--;
+    if (!vigente()) return;
+    if (!res || !res.ok) {
+      var msg = (res && res.error) || 'No se pudo cargar el calendario.';
+      if (/sesi[óo]n|venci/i.test(msg)) { terminar(); alert(msg); salir(); return; }
+      if (lote.enCamino > 0) return;   // quizá otro intento sí responde bien
+      terminar();
+      aviso.textContent = '';
+      if (!guardado) area.innerHTML = '<div class="no-data">' + esc(msg) + '</div>';
+      return;
+    }
+    terminar();
+    calDatos = res;
+    calCargado = true;
+    cacheGuardar(clave, res);
+    aviso.textContent = '';
+    // Medición temporal: servidor = lo que tardó nuestro código;
+    // total = lo que esperaste tú (incluye el arranque de Google y la red).
+    if (res.tiempos) {
+      var srv = res.tiempos.total || 0, tot = Date.now() - tPedido;
+      aviso.textContent =
+        '⏱ servidor ' + (srv / 1000).toFixed(1).replace('.', ',') + ' s · total ' +
+        (tot / 1000).toFixed(1).replace('.', ',') + ' s  (sesión ' + res.tiempos.sesion +
+        ' · config ' + res.tiempos.config + ' · registro ' + res.tiempos.registro +
+        ' · reservas ' + res.tiempos.reservas + ' ms)';
+    }
+    if (!calArrastre) calRender();   // no repintar en medio de un arrastre
+    precargarFormularios();
+  }
+
+  function fallo() {
+    lote.enCamino--;
+    if (!vigente() || lote.enCamino > 0) return;
+    terminar();
+    aviso.textContent = '';
+    if (!guardado) area.innerHTML = '<div class="no-data">No se pudo cargar el calendario. ' +
+      '<button class="btn-refrescar" onclick="calRefrescar()">↻ Reintentar</button></div>';
+  }
+
+  function pedir(intento) {
+    lote.enCamino++;
+    google.script.run
+      .withSuccessHandler(recibir)
+      .withFailureHandler(fallo)
+      .getCalendarioDashboard(tokenActual, r.desde, r.hasta);
+    setTimeout(function() {
+      if (!vigente()) return;
+      if (intento < CAL_REINTENTOS_MS.length - 1) {
+        aviso.textContent = 'Tardando… reintentando';
+        pedir(intento + 1);
+      } else {
+        // Se agotaron los intentos y nada volvió: dejar un botón a mano.
+        terminar();
+        aviso.textContent = '';
+        if (!guardado) area.innerHTML = '<div class="no-data">El servidor no respondió. ' +
+          '<button class="btn-refrescar" onclick="calRefrescar()">↻ Reintentar</button></div>';
       }
-      calDatos = res;
-      calCargado = true;
-      calRender();
-    })
-    .withFailureHandler(function() {
-      area.innerHTML = '<div class="no-data">No se pudo cargar el calendario. Revisa tu conexión.</div>';
-    })
-    .getCalendarioDashboard(tokenActual, r.desde, r.hasta);
+    }, CAL_REINTENTOS_MS[intento]);
+  }
+  pedir(0);
 }
 
 function calSetVista(v) {
@@ -2886,6 +3211,7 @@ function guardarNuevaCita(forzar) {
         return;
       }
       cerrarNueva();
+      calAgregarCitaLocal(r.reserva);   // se ve de una en el calendario, sin esperar la recarga
       calInvalidate();
       cargarAgenda();
     })
