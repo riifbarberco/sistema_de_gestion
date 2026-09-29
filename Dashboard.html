@@ -766,6 +766,11 @@
     background: rgba(76,142,207,0.18);
   }
   .cal-block b { display: block; font-size: 12px; }
+  .cal-block span, .cal-block small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cal-block small { font-size: 10px; color: var(--text-muted); }
+  .cal-block.compacta { padding: 1px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 15px; }
+  .cal-block.compacta b, .cal-block.compacta span { display: inline; font-size: 11px; }
+  .cal-block.compacta span { margin-left: 4px; }
   /* Citas que se pueden arrastrar (mantener presionado en el celular) */
   .cal-block.movible {
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
@@ -782,7 +787,6 @@
   .cal-block.st-cancelada {
     border-left-color: var(--red); background: transparent; border: 1px dashed var(--red);
     opacity: .55; text-decoration: line-through;
-    left: auto; width: 38%;   /* angosta a la derecha: no tapa una cita nueva en el mismo horario */
   }
 
   .cal-semana-cols { display: flex; gap: 8px; overflow-x: auto; margin: 0 -20px; padding: 0 20px 8px; -webkit-overflow-scrolling: touch; }
@@ -823,7 +827,7 @@
 <div id="login-screen">
   <div class="login-box">
     <div class="marca-login"><?!= include('Logo') ?></div>
-    <div style="text-align:center;font-size:11px;color:var(--text-muted);margin:-4px 0 10px;">versión 28-sep · v22</div>
+    <div style="text-align:center;font-size:11px;color:var(--text-muted);margin:-4px 0 10px;">versión 29-sep · v24</div>
     <div class="sub">Dashboard</div>
 
     <label>¿Quién eres?</label>
@@ -1214,6 +1218,7 @@ var calFechaRef    = '';      // ISO de referencia (ancla de la vista)
 var calDatos       = null;    // última respuesta de getCalendarioDashboard
 var calCargado     = false;
 var CAL_PX_MIN     = 1.2;     // píxeles por minuto de la grilla de horas
+var CAL_ALTO_MIN   = 18;      // alto mínimo de un bloque (px): = una cita de 15 min, así las cortas seguidas no se montan
 
 // ─────────────────────────────────────────────
 //  INICIO
@@ -1593,7 +1598,7 @@ function mostrarDashboard() {
 /** Lo que cambia según el rol (se llama al entrar y si el rol cambia). */
 function aplicarRolUI() {
   document.getElementById('saludo-fecha').textContent  =
-    (rolActual === 'Dueño' ? 'Vista de administrador · ' : '') + fechaHoyTexto() + ' · v22';
+    (rolActual === 'Dueño' ? 'Vista de administrador · ' : '') + fechaHoyTexto() + ' · v24';
   document.getElementById('tab-btn-inventario').hidden = (rolActual !== 'Dueño');
   document.getElementById('tab-btn-analisis').hidden = false;   // cada barbero ve sus propias métricas
   document.querySelectorAll('.solo-dueno').forEach(function(el) {
@@ -2642,12 +2647,15 @@ function calRenderDia() {
   }
 
   var totalH = (maxCierra - minAbre) * CAL_PX_MIN;
-  var gutter = '<div class="cal-gutter" style="height:' + totalH + 'px;">';
+  // La columna de horas lleva un encabezado invisible del mismo alto que el
+  // nombre del barbero: sin él, las horas quedaban ~30 px más arriba que las citas.
+  var gutter = '<div class="cal-gutter"><div class="cal-col-head" style="visibility:hidden;">&nbsp;</div>' +
+    '<div style="position:relative;height:' + totalH + 'px;">';
   for (var hh = Math.ceil(minAbre / 60); hh <= Math.floor(maxCierra / 60); hh++) {
     gutter += '<div class="cal-gutter-label" style="top:' + ((hh * 60 - minAbre) * CAL_PX_MIN) + 'px;">' +
       ('0' + hh).slice(-2) + ':00</div>';
   }
-  gutter += '</div>';
+  gutter += '</div></div>';
 
   var cols = '';
   barberos.forEach(function(barbero) {
@@ -2697,20 +2705,36 @@ function calRenderDia() {
     }).sort(function(a, b) {
       return (a.estadoReserva === 'Cancelada' ? 0 : 1) - (b.estadoReserva === 'Cancelada' ? 0 : 1);
     });
+    var bloques = [];
     citasCol.forEach(function(c) {
       var ini = calHoraAMin(c.hora);
       if (ini === null) return;
       var fin = calHoraAMin(c.fin);
       if (fin === null || fin <= ini) fin = ini + (c.duracion || CAL_PASO_MIN);
-      var top = (ini - minAbre) * CAL_PX_MIN;
-      var height = Math.max((fin - ini) * CAL_PX_MIN, 22);
+      var height = Math.max((fin - ini) * CAL_PX_MIN, CAL_ALTO_MIN);
+      // "finVisible": hasta dónde llega el bloque DIBUJADO (una cita corta se
+      // ve más alta que su duración): con eso se decide si choca con la siguiente.
+      bloques.push({ c: c, ini: ini, fin: fin, height: height,
+                     finVisible: ini + height / CAL_PX_MIN });
+    });
+
+    calRepartirCarriles(bloques).forEach(function(b) {
+      var c = b.c;
+      var top = (b.ini - minAbre) * CAL_PX_MIN;
       var clase = calEstadoClase(c);
       // Solo se mueven las que siguen pendientes, y cada barbero solo las suyas.
       var movible = !clase && (rolActual === 'Dueño' || c.barbero === barberoActual);
-      grid += '<div class="cal-block ' + clase + (movible ? ' movible' : '') + '" style="top:' + top +
-        'px;height:' + height + 'px;" data-id="' + esc(c.id) + '" data-dur="' + (fin - ini) + '"' +
+      // Lado a lado (como Booksy): cada cita ocupa su carril dentro de la columna.
+      var ancho = 100 / b.carriles;
+      var pos = 'left:calc(' + (b.carril * ancho) + '% + 2px);width:calc(' + ancho + '% - 4px);right:auto;';
+      var conServicio = b.height >= 44 && c.servicio;
+      var compacta = b.height < 34;   // cita corta: hora y cliente en una sola línea
+      grid += '<div class="cal-block ' + clase + (movible ? ' movible' : '') + (compacta ? ' compacta' : '') + '" style="top:' + top +
+        'px;height:' + b.height + 'px;' + pos + '" data-id="' + esc(c.id) + '" data-dur="' + (b.fin - b.ini) + '"' +
+        ' title="' + esc(c.hora + ' · ' + (c.cliente || '') + (c.servicio ? ' · ' + c.servicio : '')) + '"' +
         ' onclick="event.stopPropagation();calAbrirCita(\'' + esc(c.id) + '\')">' +
-        '<b>' + esc(c.hora) + '</b>' + esc(c.cliente) + '</div>';
+        '<b>' + esc(c.hora) + '</b><span>' + esc(c.cliente) + '</span>' +
+        (conServicio ? '<small>' + esc(c.servicio) + '</small>' : '') + '</div>';
     });
 
     grid += '</div>';
@@ -2928,6 +2952,35 @@ function calArrastreSoltar() {
     .modificarCitaDashboard(tokenActual, a.id, {
       fecha: calFechaRef, hora: hora, barbero: a.barbero, mover: true
     });
+}
+
+/**
+ * Reparte en carriles las citas que se cruzan (la forma típica de los
+ * calendarios): las que se solapan forman un grupo y cada una toma el primer
+ * carril libre. Todas las del grupo usan el mismo número de carriles, así
+ * quedan del mismo ancho. Devuelve los mismos bloques con {carril, carriles}.
+ */
+function calRepartirCarriles(bloques) {
+  bloques.sort(function(a, b) { return a.ini - b.ini || (b.finVisible - b.ini) - (a.finVisible - a.ini); });
+  var grupo = [], finGrupo = -1, carrilesFin = [];
+  function cerrarGrupo() {
+    grupo.forEach(function(b) { b.carriles = carrilesFin.length; });
+    grupo = []; carrilesFin = [];
+  }
+  bloques.forEach(function(b) {
+    if (grupo.length && b.ini >= finGrupo) cerrarGrupo();
+    var carril = -1;
+    for (var i = 0; i < carrilesFin.length; i++) {
+      if (carrilesFin[i] <= b.ini) { carril = i; break; }
+    }
+    if (carril < 0) { carril = carrilesFin.length; carrilesFin.push(0); }
+    carrilesFin[carril] = b.finVisible;
+    b.carril = carril;
+    grupo.push(b);
+    finGrupo = Math.max(finGrupo, b.finVisible);
+  });
+  cerrarGrupo();
+  return bloques;
 }
 
 function calRenderSemana() {
