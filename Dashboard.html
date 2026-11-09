@@ -753,6 +753,20 @@
   .cal-grid { position: relative; }
   .cal-hourline { position: absolute; left: 0; right: 0; border-top: 1px solid var(--border); opacity: .5; }
   .cal-cerrado { position: absolute; left: 0; right: 0; background: rgba(0,0,0,0.25); }
+  /* Línea de "ahora" en la vista Día (se mueve sola cada minuto) */
+  .cal-ahora {
+    position: absolute; left: 0; right: 0; height: 0; z-index: 1; pointer-events: none;
+    border-top: 2px solid var(--red);
+  }
+  .cal-ahora.con-punto::before {
+    content: ''; position: absolute; left: -5px; top: -6px;
+    width: 10px; height: 10px; border-radius: 50%; background: var(--red);
+  }
+  .cal-ahora-label {
+    position: absolute; right: 2px; transform: translateY(-50%); z-index: 1;
+    font-size: 10px; font-weight: 700; color: #fff; background: var(--red);
+    border-radius: 4px; padding: 1px 3px; white-space: nowrap;
+  }
   .cal-bloqueo {
     position: absolute; left: 2px; right: 2px; border-radius: 6px; pointer-events: none;
     background: repeating-linear-gradient(45deg, rgba(255,255,255,0.04), rgba(255,255,255,0.04) 6px, rgba(255,255,255,0.09) 6px, rgba(255,255,255,0.09) 12px);
@@ -2655,6 +2669,8 @@ function calRenderDia() {
     gutter += '<div class="cal-gutter-label" style="top:' + ((hh * 60 - minAbre) * CAL_PX_MIN) + 'px;">' +
       ('0' + hh).slice(-2) + ':00</div>';
   }
+  var esHoy = calFechaRef === isoHoy();
+  if (esHoy) gutter += '<div class="cal-ahora-label" hidden></div>';
   gutter += '</div></div>';
 
   var cols = '';
@@ -2737,6 +2753,7 @@ function calRenderDia() {
         (conServicio ? '<small>' + esc(c.servicio) + '</small>' : '') + '</div>';
     });
 
+    if (esHoy) grid += '<div class="cal-ahora' + (cols ? '' : ' con-punto') + '" hidden></div>';
     grid += '</div>';
     cols += '<div class="cal-col" data-barbero="' + esc(barbero) + '"><div class="cal-col-head">' +
       esc(barbero) + '</div>' + grid + '</div>';
@@ -2745,7 +2762,28 @@ function calRenderDia() {
   area.innerHTML = '<p class="cal-ayuda">Para mover una cita, mantenla presionada y arrástrala.</p>' +
     '<div class="cal-wrap"><div class="cal-cols">' + gutter + cols + '</div></div>';
   calActivarArrastre(area, minAbre);
+  calAhoraRango = esHoy ? { fecha: calFechaRef, minAbre: minAbre, maxCierra: maxCierra } : null;
+  calAhoraMover();
 }
+
+// Línea roja de la hora actual en la vista Día de hoy. Se reubica cada
+// 30 s; si el día cambió (pasó la medianoche) la línea deja de moverse.
+var calAhoraRango = null;
+function calAhoraMover() {
+  if (!calAhoraRango) return;
+  if (calAhoraRango.fecha !== isoHoy()) { calAhoraRango = null; return; }
+  var d = new Date();
+  var min = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+  var dentro = min >= calAhoraRango.minAbre && min <= calAhoraRango.maxCierra;
+  var top = (min - calAhoraRango.minAbre) * CAL_PX_MIN + 'px';
+  document.querySelectorAll('#cal-area .cal-ahora, #cal-area .cal-ahora-label').forEach(function(el) {
+    el.hidden = !dentro;
+    el.style.top = top;
+  });
+  var lbl = document.querySelector('#cal-area .cal-ahora-label');
+  if (lbl) lbl.textContent = calMinAHora(Math.floor(min));
+}
+setInterval(calAhoraMover, 30000);
 
 // ─────────────────────────────────────────────
 //  ARRASTRAR CITAS EN LA VISTA DÍA
