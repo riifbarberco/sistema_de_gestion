@@ -159,6 +159,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
       id: citaId,
       fecha: iso, hora: hora, barbero: fBarbero,
       servicio: nombreSrv, cliente: cliente,
+      valor: Number(f[6]) || 0,   // valor del servicio antes del descuento (col G)
       total: total, pagoBarbero: pagoBarbero, neto: neto, valorProductos: valorProd,
       propina: propina, metodo: metodo, descuento: descuento,
       productos: productos,
@@ -748,6 +749,22 @@ function cerrarServicioDashboard(token, id, datos) {
       }
     }
 
+    // --- Valor final del tatuaje ---
+    // Los tatuajes tienen precio "desde": el real se acuerda según tamaño y
+    // complejidad y se escribe al cerrar. Solo se acepta si el servicio de
+    // la fila es de la categoría Tatuajes (los de barbería tienen precio fijo).
+    var valorFinal = Number(datos.valorFinal);
+    if (valorFinal > 0) {
+      var comboFila = _combinarServicios_(leerConfig_(),
+        String(hg.getRange(fila, 6).getValue()).trim().split(SEPARADOR_COMBO));
+      if (!comboFila.ok || comboFila.categoria !== CAT_TATUAJES) {
+        return { ok: false, error: 'El valor final solo se puede cambiar en tatuajes.' };
+      }
+      hg.getRange(fila, 7).setValue(valorFinal);
+      valorServ = valorFinal;
+      if (res) hres.getRange(res.fila, 9).setValue(valorFinal);
+    }
+
     // --- Liberar el tiempo sobrante si el servicio terminó antes de lo planeado ---
     // Solo aplica a citas de HOY cerradas como "Atendido". Si el barbero cierra
     // tarde (después de la hora de fin planeada), no se toca nada: la cita nunca
@@ -861,9 +878,15 @@ function getFormularioCita(token) {
   var s = _sesion(token);
   var base;
   try { base = getDatosIniciales(); } catch (e) { base = { servicios: [], dias: [] }; }
+  var barberos = (s.rol === 'Dueño') ? _barberosReales_() : [s.nombre];
+  // { nombre: 'Barbería' | 'Tatuajes' } — el formulario muestra, para cada
+  // trabajador, solo los servicios de su categoría.
+  var categorias = {};
+  barberos.forEach(function (n) { categorias[n] = categoriaTrabajador_(n); });
   return {
     servicios: base.servicios || [],
-    barberos:  (s.rol === 'Dueño') ? _barberosReales_() : [s.nombre],
+    barberos:  barberos,
+    categorias: categorias,
     dias:      base.dias || [],
     rol:       s.rol,
     yo:        s.nombre,
@@ -1146,6 +1169,11 @@ function crearCitaDashboard(token, d) {
   var barbero = (s.rol === 'Dueño') ? String(d.barbero || '').trim() : s.nombre;
   var modo = (d.modo === 'agendar') ? 'agendar' : 'ahora';
 
+  // Un barbero no hace tatuajes ni un tatuador cortes.
+  if (barbero && barbero !== '*' && categoriaTrabajador_(barbero) !== combo.categoria) {
+    return { ok: false, error: barbero + ' no atiende ' + combo.categoria.toLowerCase() + '.' };
+  }
+
   var lock = LockService.getScriptLock();
   try { lock.waitLock(20000); }
   catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
@@ -1169,7 +1197,7 @@ function crearCitaDashboard(token, d) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !hora) {
         return { ok: false, error: 'Falta el día o la hora.' };
       }
-      var estado = getCupos(barbero || '*', fecha, combo.duracion);
+      var estado = getCupos(barbero || '*', fecha, combo.duracion, combo.categoria);
       var cupo = estado.cupos.filter(function (c) { return c.hora === hora; })[0];
       if (!cupo) return { ok: false, error: 'Ese horario no está libre. Escoge otro.' };
       asignado = (barbero && barbero !== '*' && cupo.barberos.indexOf(barbero) >= 0)
@@ -1322,6 +1350,14 @@ function modificarCitaDashboard(token, id, cambios) {
         return { ok: false, error: 'Día u hora no válidos.' };
       }
       if (!cliente) cliente = CLIENTE_SIN_NOMBRE;
+
+      // Si cambió el trabajador o los servicios, que sigan siendo del mismo
+      // tipo (barbería ↔ barbero, tatuajes ↔ tatuador). combo.categoria falta
+      // solo cuando el servicio viejo ya no está en Config: ahí no se revisa.
+      if ((cambios.barbero || (cambios.servicios && cambios.servicios.length)) &&
+          combo.categoria && categoriaTrabajador_(barbero) !== combo.categoria) {
+        return { ok: false, error: barbero + ' no atiende ' + combo.categoria.toLowerCase() + '.' };
+      }
 
       if (cambios.mover) {
         var chk = _validarFranja_(barbero, fecha, hora, combo.duracion || PASO_MIN, id);
