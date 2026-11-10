@@ -630,6 +630,7 @@ function getDatosIniciales() {
     servicios: cfg.servicios,
     barberos: cfg.barberos.map(function (b) { return b.nombre; }),
     categorias: categorias,
+    version: 'tatuador',   // marca de prueba: se quita antes de pasar a main
     dias: dias,
     tieneHorarios: Object.keys(horarios).length > 0
   };

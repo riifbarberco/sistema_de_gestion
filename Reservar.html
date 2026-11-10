@@ -269,6 +269,12 @@ function trabajadoresDe(cat){
 function arranque(d){
   D = d;
 
+  // Marca de prueba (se quita antes de pasar a main): dice qué versión corre.
+  var marca = document.createElement('div');
+  marca.style.cssText = 'position:fixed;left:8px;bottom:6px;font-size:10px;opacity:.5;color:#8E8880';
+  marca.textContent = 'página: tatuador · servidor: ' + (d.version || 'VIEJO');
+  document.body.appendChild(marca);
+
   // Pestaña Tatuajes solo si hay servicios de tatuaje y alguien que los haga.
   var hayTatuajes = d.servicios.some(function(s){ return catDe(s) === CAT_TATUAJES; }) &&
                     trabajadoresDe(CAT_TATUAJES).length > 0;

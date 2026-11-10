@@ -887,6 +887,7 @@ function getFormularioCita(token) {
     servicios: base.servicios || [],
     barberos:  barberos,
     categorias: categorias,
+    version:   base.version || 'Codigo.gs VIEJO',   // marca de prueba
     dias:      base.dias || [],
     rol:       s.rol,
     yo:        s.nombre,
