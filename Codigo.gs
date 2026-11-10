@@ -314,7 +314,8 @@ function _categoriaDe_(texto) {
 /** Categoría de servicios que atiende un trabajador (por su "Tipo" en la hoja Barberos). */
 function categoriaTrabajador_(nombre) {
   var b = leerBarberos_()[nombre];
-  return _categoriaDe_(b && b.tipo);
+  // Se acepta "Tatuador" en la columna Tipo o, si no existe, en la columna Rol.
+  return _categoriaDe_(b && ((b.tipo || '') + ' ' + (b.rol || '')));
 }
 
 // Cómo se unen los nombres cuando una cita tiene varios servicios.
