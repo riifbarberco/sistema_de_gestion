@@ -82,6 +82,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
   var precios = null;       // precios del Inventario, solo si alguna fila los necesita
   var contPorDia    = {};   // { 'YYYY-MM-DD': { count, total } }
   var contServicios = {};   // { 'Nombre servicio': { count, total } }
+  var porTrabajador = {};   // { nombre: { categoria, servicios, cobrado, pago, barberia } } (solo atendidos)
 
   datos.forEach(function(f) {
     // Columnas del Registro (base-1 en Sheets → base-0 aquí):
@@ -142,6 +143,22 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     totalBarberia  += neto;
     totalProductos += valorProd;
 
+    // Pago por trabajador (barberos y tatuadores por separado), para que el
+    // dueño vea cuánto entra y cuánto se le paga a cada uno.
+    if (atendido && fBarbero) {
+      var pt = porTrabajador[fBarbero];
+      if (!pt) {
+        var catPt = CAT_BARBERIA;
+        try { catPt = categoriaTrabajador_(fBarbero); } catch (e) {}
+        pt = porTrabajador[fBarbero] = { nombre: fBarbero, categoria: catPt,
+                                         servicios: 0, cobrado: 0, pago: 0, barberia: 0 };
+      }
+      pt.servicios++;
+      pt.cobrado  += total + valorProd;
+      pt.pago     += pagoBarbero;
+      pt.barberia += neto;
+    }
+
     // Acumular por día
     if (!contPorDia[iso]) contPorDia[iso] = { count: 0, total: 0 };
     contPorDia[iso].count++;
@@ -195,6 +212,17 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     totalProductos: Math.round(totalProductos),
     porPeriodo:     porPeriodo,
     topServicios:   topServicios,
+    // Barbería primero, luego Tatuajes; dentro de cada una, el que más se le paga arriba.
+    porTrabajador:  Object.keys(porTrabajador).map(function (k) {
+                      var t = porTrabajador[k];
+                      t.cobrado  = Math.round(t.cobrado);
+                      t.pago     = Math.round(t.pago * 100) / 100;
+                      t.barberia = Math.round(t.barberia * 100) / 100;
+                      return t;
+                    }).sort(function (a, b) {
+                      if (a.categoria !== b.categoria) return a.categoria === CAT_BARBERIA ? -1 : 1;
+                      return b.pago - a.pago;
+                    }),
     servicios:      servicios
   };
 }
@@ -328,7 +356,7 @@ function _dashboardVacio() {
     totalServicios: 0, totalCobrado: 0,
     totalComision: 0,  totalPropinas: 0,
     totalBarberia: 0,  totalProductos: 0,
-    porPeriodo: [], topServicios: [], servicios: []
+    porPeriodo: [], topServicios: [], porTrabajador: [], servicios: []
   };
 }
 

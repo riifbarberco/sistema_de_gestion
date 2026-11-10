@@ -341,6 +341,24 @@
     color: var(--text-muted);
   }
 
+  /* Pago por trabajador (Resumen, solo dueño) */
+  .eq-cat {
+    display: flex; justify-content: space-between; gap: 10px;
+    padding: 10px 16px; background: var(--surface2);
+    font-size: 12px; font-weight: 700; color: var(--gold);
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .eq-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+  }
+  .eq-row:last-child { border-bottom: none; }
+  .eq-nom { font-weight: 600; }
+  .eq-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .eq-pago { text-align: right; white-space: nowrap; }
+  .eq-pago b { color: var(--green); font-size: 16px; }
+  .eq-pago small { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
   /* Gráfico de barras */
   .chart-wrap { padding: 16px; }
   .bar-row {
@@ -953,6 +971,12 @@
         <div class="num" id="k-barberia">—</div>
         <div class="lbl">Pago barbería</div>
       </div>
+    </div>
+
+    <!-- Pago por trabajador (solo dueño): barberos y tatuadores por separado -->
+    <div class="section" id="sec-equipo" hidden>
+      <div class="section-title">Pago por trabajador</div>
+      <div id="equipo-area"></div>
     </div>
 
     <!-- Gráfico por día -->
@@ -1903,7 +1927,9 @@ function renderDashboard(d) {
   document.getElementById('k-comision').textContent  = pesos(d.totalComision || 0);
   document.getElementById('k-propinas').textContent  = pesos(d.totalPropinas || 0);
   document.getElementById('k-total').textContent     = pesos(d.totalCobrado || 0);
-  document.querySelector('.kpi.green .lbl').textContent = esDueno ? 'Pago barberos' : 'Tu pago';
+  var hayTatuador = (d.porTrabajador || []).some(function(t) { return t.categoria === CAT_TATUAJES; });
+  document.querySelector('.kpi.green .lbl').textContent =
+    esDueno ? (hayTatuador ? 'Pago equipo' : 'Pago barberos') : 'Tu pago';
   // Pago barbería = servicios − comisiones + bebidas vendidas. El barbero ve
   // el de sus propios servicios: es lo que le debe entregar a la barbería.
   document.getElementById('k-barberia').textContent  = pesos(d.totalBarberia || 0);
@@ -1915,6 +1941,9 @@ function renderDashboard(d) {
                filtroActual === 'semana' ? 'Servicios por día de la semana' :
                filtroActual === 'anio' ? 'Servicios por mes' : 'Servicios por día';
   document.getElementById('chart-title').textContent = titulo;
+
+  // Pago por trabajador (solo el dueño ve a todos)
+  renderEquipo(esDueno ? (d.porTrabajador || []) : []);
 
   // Gráfico
   renderChart(d.porPeriodo || []);
@@ -1932,6 +1961,42 @@ function pesos(n) {
   if (n >= 1000000) return '$' + (n / 1000000).toFixed(1).replace('.0', '') + 'M';
   if (n >= 1000) return '$' + Math.round(n / 1000) + 'k';
   return '$' + n;
+}
+
+/**
+ * Sección "Pago por trabajador": barberos y tatuadores en bloques separados,
+ * cada uno con lo que cobró, lo que se le paga y lo que queda para la barbería.
+ * Solo cuenta servicios atendidos del período elegido.
+ */
+function renderEquipo(lista) {
+  var sec = document.getElementById('sec-equipo');
+  if (!lista.length) { sec.hidden = true; return; }
+  sec.hidden = false;
+  function dinero(n) { return pesosExacto(Math.round(n || 0)); }
+
+  var TITULOS = {};
+  TITULOS[CAT_BARBERIA] = 'Barberos';
+  TITULOS[CAT_TATUAJES] = 'Tatuadores';
+
+  var html = '';
+  [CAT_BARBERIA, CAT_TATUAJES].forEach(function(cat) {
+    var grupo = lista.filter(function(t) { return (t.categoria || CAT_BARBERIA) === cat; });
+    if (!grupo.length) return;
+    var pagoCat = grupo.reduce(function(a, t) { return a + t.pago; }, 0);
+    var cobradoCat = grupo.reduce(function(a, t) { return a + t.cobrado; }, 0);
+    html += '<div class="eq-cat"><span>' + TITULOS[cat] + '</span>' +
+            '<span>Cobrado ' + dinero(cobradoCat) + ' · Pago ' + dinero(pagoCat) + '</span></div>';
+    grupo.forEach(function(t) {
+      html += '<div class="eq-row">' +
+        '<div><div class="eq-nom">' + esc(t.nombre) + '</div>' +
+          '<div class="eq-sub">' + t.servicios + (t.servicios === 1 ? ' servicio' : ' servicios') +
+          ' · cobrado ' + dinero(t.cobrado) + '</div></div>' +
+        '<div class="eq-pago"><b>' + dinero(t.pago) + '</b>' +
+          '<small>queda barbería ' + dinero(t.barberia) + '</small></div>' +
+      '</div>';
+    });
+  });
+  document.getElementById('equipo-area').innerHTML = html;
 }
 
 function renderChart(datos) {
