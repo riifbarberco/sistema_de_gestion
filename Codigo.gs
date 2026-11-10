@@ -234,9 +234,9 @@ function _cacheHoja_(clave, leer) {
 }
 
 var CLAVE_HOJA = {};
-CLAVE_HOJA[HOJA_CONFIG]   = 'hoja_config';
+CLAVE_HOJA[HOJA_CONFIG]   = 'hoja_config_v2';
 CLAVE_HOJA[HOJA_HORARIOS] = 'hoja_horarios';
-CLAVE_HOJA[HOJA_BARBEROS] = 'hoja_barberos';
+CLAVE_HOJA[HOJA_BARBEROS] = 'hoja_barberos_v2';
 CLAVE_HOJA[HOJA_BLOQUEOS] = 'hoja_bloqueos';
 
 /** Borra la memoria de esas hojas (nombres de hoja); sin argumento, de todas. */
@@ -258,7 +258,7 @@ function onEdit(e) {
   } catch (err) {}
 }
 
-function leerConfig_() { return _cacheHoja_('hoja_config', _leerConfigHoja_); }
+function leerConfig_() { return _cacheHoja_('hoja_config_v2', _leerConfigHoja_); }
 function leerHorarios_() { return _cacheHoja_('hoja_horarios', _leerHorariosHoja_); }
 
 /** Bloqueos como [{quien, fecha, desde, hasta, motivo}] (fechas ya en texto). */
@@ -452,7 +452,7 @@ function leerBarberos_() {
   // Se usa en casi todo (sesión, calendario, avisos, ocupación…): se lee la
   // hoja una sola vez por petición. Quien escriba en Barberos y vuelva a leer
   // en la misma ejecución debe llamar antes a _olvidarBarberos_().
-  return _cacheHoja_('hoja_barberos', _leerBarberosHoja_);
+  return _cacheHoja_('hoja_barberos_v2', _leerBarberosHoja_);
 }
 
 function _olvidarBarberos_() { _olvidarHojas_([HOJA_BARBEROS]); }

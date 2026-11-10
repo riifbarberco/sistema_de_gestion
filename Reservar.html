@@ -272,7 +272,9 @@ function arranque(d){
   // Marca de prueba (se quita antes de pasar a main): dice qué versión corre.
   var marca = document.createElement('div');
   marca.style.cssText = 'position:fixed;left:8px;bottom:6px;font-size:10px;opacity:.5;color:#8E8880';
-  marca.textContent = 'página: tatuador · servidor: ' + (d.version || 'VIEJO');
+  marca.textContent = 'página: tatuador · servidor: ' + (d.version || 'VIEJO') +
+    ' · servicios tatuaje: ' + d.servicios.filter(function(s){ return s.categoria === 'Tatuajes'; }).length +
+    ' · tatuadores: ' + d.barberos.filter(function(n){ return (d.categorias || {})[n] === 'Tatuajes'; }).length;
   document.body.appendChild(marca);
 
   // Pestaña Tatuajes solo si hay servicios de tatuaje y alguien que los haga.
