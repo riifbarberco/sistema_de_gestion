@@ -1003,7 +1003,8 @@
 
     <!-- ══════ PESTAÑA CITAS ══════ -->
     <section id="tab-citas" hidden>
-      <button class="btn-primary" onclick="abrirNuevaCita()" style="margin-bottom:16px;">＋ Nueva cita</button>
+      <button class="btn-primary" onclick="abrirNuevaCita()" style="margin-bottom:10px;">＋ Nueva cita</button>
+      <button class="btn-sec" onclick="abrirVenta()" style="margin-bottom:16px;">🛒 Vender productos</button>
       <div id="agenda-area"><div class="spinner"></div></div>
     </section>
 
@@ -1105,6 +1106,33 @@
     <button class="btn-primary" id="mc-guardar" onclick="guardarCierre()">Guardar cierre</button>
     <button class="btn-peligro solo-dueno" style="margin-top:10px;" onclick="eliminarCita(cierreCitaId)">🗑 Borrar definitivamente</button>
     <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- HOJA MODAL: vender productos sin servicio -->
+<div class="modal-fondo" id="modal-venta" onclick="if(event.target===this)cerrarVenta()">
+  <div class="modal-hoja">
+    <div class="modal-agarre"></div>
+    <h3>Vender productos</h3>
+    <div class="modal-sub">Sin servicio · se descuenta del inventario</div>
+
+    <div class="modal-error" id="mv-error"></div>
+
+    <div class="campo" id="mv-productos"></div>
+    <div class="serv-resumen" id="mv-total">Ningún producto elegido.</div>
+
+    <div class="campo">
+      <label>Método de pago</label>
+      <select id="mv-metodo"></select>
+    </div>
+
+    <div class="campo">
+      <label>Cliente <span style="text-transform:none;letter-spacing:0;">(opcional)</span></label>
+      <input id="mv-cliente" type="text" placeholder="Venta mostrador">
+    </div>
+
+    <button class="btn-primary" id="mv-guardar" onclick="guardarVenta()">Registrar venta</button>
+    <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarVenta()">Cancelar</button>
   </div>
 </div>
 
@@ -1943,7 +1971,7 @@ function renderDashboard(d) {
   document.getElementById('chart-title').textContent = titulo;
 
   // Pago por trabajador (solo el dueño ve a todos)
-  renderEquipo(esDueno ? (d.porTrabajador || []) : []);
+  renderEquipo(esDueno ? (d.porTrabajador || []) : [], esDueno ? (d.totalVentas || 0) : 0);
 
   // Gráfico
   renderChart(d.porPeriodo || []);
@@ -1968,9 +1996,9 @@ function pesos(n) {
  * cada uno con lo que cobró, lo que se le paga y lo que queda para la barbería.
  * Solo cuenta servicios atendidos del período elegido.
  */
-function renderEquipo(lista) {
+function renderEquipo(lista, ventas) {
   var sec = document.getElementById('sec-equipo');
-  if (!lista.length) { sec.hidden = true; return; }
+  if (!lista.length && !ventas) { sec.hidden = true; return; }
   sec.hidden = false;
   function dinero(n) { return pesosExacto(Math.round(n || 0)); }
 
@@ -1996,6 +2024,13 @@ function renderEquipo(lista) {
       '</div>';
     });
   });
+  // Productos vendidos sin servicio: 100% para la barbería, no se le pagan a nadie.
+  if (ventas) {
+    html += '<div class="eq-cat"><span>Ventas de productos</span><span>Cobrado ' + dinero(ventas) + '</span></div>' +
+      '<div class="eq-row"><div><div class="eq-nom">Sin servicio (mostrador)</div>' +
+        '<div class="eq-sub">bebidas y productos vendidos solos</div></div>' +
+      '<div class="eq-pago"><b>' + dinero(0) + '</b><small>queda barbería ' + dinero(ventas) + '</small></div></div>';
+  }
   document.getElementById('equipo-area').innerHTML = html;
 }
 
@@ -2059,7 +2094,7 @@ function renderLista() {
     html += '<div class="servicio-row' + tocable + '"' +
              (s.id ? ' onclick="abrirCierre(' + i + ')"' : '') + '>' +
       '<div class="srv-left">' +
-        '<div class="srv-fecha">' + fmtFecha(s.fecha) + ' · ' + esc(s.hora) + ' <span class="badge ' + badgeClass + '">' + esc(s.estado) + '</span></div>' +
+        '<div class="srv-fecha">' + fmtFecha(s.fecha) + ' · ' + esc(s.hora) + ' <span class="badge ' + badgeClass + '">' + esc(s.venta ? 'Venta' : s.estado) + '</span></div>' +
         '<div class="srv-nombre">' + esc(s.cliente) + '</div>' +
         '<div class="srv-servicio">' + lineaSrv + '</div>' +
         (bebidas ? '<div class="srv-bebidas">🥤 ' + bebidas +
@@ -2406,6 +2441,127 @@ function paso(btn, d) {
   var n = (parseInt(b.textContent, 10) || 0) + d;
   if (n < 0) n = 0;
   b.textContent = n;
+}
+
+// ─────────────────────────────────────────────
+//  HOJA MODAL — VENDER PRODUCTOS SIN SERVICIO
+// ─────────────────────────────────────────────
+var ventaCant = {};   // { nombreProducto: cantidad } del modal de venta
+
+function abrirVenta() {
+  if (!opcionesCierre) {
+    google.script.run
+      .withSuccessHandler(function(o) { opcionesCierre = o || OPCIONES_DEFAULT; abrirVenta(); })
+      .withFailureHandler(function() { opcionesCierre = OPCIONES_DEFAULT; abrirVenta(); })
+      .getOpcionesCierre();
+    return;
+  }
+  ventaCant = {};
+  limpiarError('mv-error');
+  document.getElementById('mv-cliente').value = '';
+
+  var box = document.getElementById('mv-productos');
+  var lista = opcionesCierre.productos || [];
+  box.innerHTML = '<label>Productos</label>';
+  if (!lista.length) {
+    box.innerHTML += '<div style="font-size:12px;color:var(--text-muted);">' +
+      'Sin productos. Agrégalos en la hoja Inventario.</div>';
+  }
+  lista.forEach(function(p, i) {
+    var row = document.createElement('div');
+    row.className = 'prod-row';
+    var stock = (p.stock != null) ? ' · quedan ' + p.stock : '';
+    row.innerHTML =
+      '<div class="prod-nombre">' + esc(p.nombre) + ' <small>' + pesosExacto(p.precio) + stock + '</small></div>' +
+      '<div class="stepper"><span>Cant.</span>' +
+        '<button type="button" onclick="ventaPaso(' + i + ',-1)">−</button>' +
+        '<b id="mv-cant-' + i + '">0</b>' +
+        '<button type="button" onclick="ventaPaso(' + i + ',1)">+</button>' +
+      '</div>';
+    box.appendChild(row);
+  });
+
+  var selM = document.getElementById('mv-metodo');
+  selM.innerHTML = '<option value="">— Elige —</option>';
+  (opcionesCierre.metodos || []).forEach(function(m) {
+    var o = document.createElement('option');
+    o.value = m; o.textContent = m;
+    selM.appendChild(o);
+  });
+
+  ventaResumen();
+  document.getElementById('modal-venta').classList.add('abierto');
+}
+
+function ventaPaso(i, d) {
+  var p = (opcionesCierre.productos || [])[i];
+  if (!p) return;
+  var n = Math.max(0, (ventaCant[p.nombre] || 0) + d);
+  ventaCant[p.nombre] = n;
+  document.getElementById('mv-cant-' + i).textContent = n;
+  ventaResumen();
+}
+
+/** Línea de total del modal de venta. */
+function ventaResumen() {
+  var n = 0, total = 0;
+  (opcionesCierre.productos || []).forEach(function(p) {
+    var c = ventaCant[p.nombre] || 0;
+    n += c; total += c * (p.precio || 0);
+  });
+  document.getElementById('mv-total').innerHTML = n
+    ? n + (n === 1 ? ' producto' : ' productos') + ' · <b>' + pesosExacto(total) + '</b>'
+    : 'Ningún producto elegido.';
+}
+
+function cerrarVenta() {
+  document.getElementById('modal-venta').classList.remove('abierto');
+}
+
+function guardarVenta() {
+  var btn = document.getElementById('mv-guardar');
+  var errBox = document.getElementById('mv-error');
+  limpiarError(errBox);
+
+  var productos = {}, hay = false, sinStock = [];
+  (opcionesCierre.productos || []).forEach(function(p) {
+    var c = ventaCant[p.nombre] || 0;
+    if (c <= 0) return;
+    productos[p.nombre] = { v: c, r: 0 };
+    hay = true;
+    if (p.stock != null && c > p.stock) sinStock.push(p.nombre + ' (quedan ' + p.stock + ')');
+  });
+  if (!hay) { mostrarError(errBox, 'Elige al menos un producto.'); return; }
+  var metodo = document.getElementById('mv-metodo').value;
+  if (!metodo) { mostrarError(errBox, 'Elige el método de pago.'); return; }
+  if (sinStock.length &&
+      !confirm('Según el inventario no alcanza:\n' + sinStock.join('\n') + '\n\n¿Registrar la venta de todos modos?')) return;
+
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false; btn.textContent = 'Registrar venta';
+      if (!r || !r.ok) {
+        var msg = (r && r.error) || 'No se pudo guardar.';
+        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
+        mostrarError(errBox, msg);
+        return;
+      }
+      cerrarVenta();
+      opcionesCierre = null;   // el stock cambió: se vuelve a pedir la próxima vez
+      alert('Venta registrada: ' + pesosExacto(r.valor || 0));
+      if (r.dashboard) renderDashboard(r.dashboard);
+      else if (typeof refrescar === 'function') refrescar();
+    })
+    .withFailureHandler(function() {
+      btn.disabled = false; btn.textContent = 'Registrar venta';
+      mostrarError(errBox, 'No se pudo guardar. Revisa tu conexión.');
+    })
+    .venderProductosDashboard(tokenActual, {
+      productos: productos, metodo: metodo,
+      cliente: document.getElementById('mv-cliente').value.trim(),
+      desde: desdeActual, hasta: hastaActual
+    });
 }
 
 function cerrarModal() {

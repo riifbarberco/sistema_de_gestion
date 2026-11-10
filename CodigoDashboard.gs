@@ -83,6 +83,8 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
   var contPorDia    = {};   // { 'YYYY-MM-DD': { count, total } }
   var contServicios = {};   // { 'Nombre servicio': { count, total } }
   var porTrabajador = {};   // { nombre: { categoria, servicios, cobrado, pago, barberia } } (solo atendidos)
+  var totalVentas   = 0;    // $ de productos vendidos sin servicio (ventas de mostrador)
+  var nServicios    = 0;    // servicios de verdad (sin contar ventas sueltas)
 
   datos.forEach(function(f) {
     // Columnas del Registro (base-1 en Sheets → base-0 aquí):
@@ -117,6 +119,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     // id de la cita, guardado en la col 16 (Notas) como "Cita <id>"
     var nota = String(f[15] || '').trim();
     var citaId = (nota.indexOf('Cita ') === 0) ? nota.substring(5).trim() : '';
+    var esVenta = _esVentaSuelta_(nota);   // venta de productos sin servicio
 
     // Productos: { 'Agua': {v,r}, ... } — acepta formato nuevo (texto) y viejo.
     var productos = _leerProductosRegistro_([f[21], f[22], f[23], f[24], f[25], f[26]]);
@@ -142,10 +145,11 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     totalPropinas  += propina;
     totalBarberia  += neto;
     totalProductos += valorProd;
+    if (esVenta) totalVentas += valorProd;
 
     // Pago por trabajador (barberos y tatuadores por separado), para que el
     // dueño vea cuánto entra y cuánto se le paga a cada uno.
-    if (atendido && fBarbero) {
+    if (atendido && fBarbero && !esVenta) {
       var pt = porTrabajador[fBarbero];
       if (!pt) {
         var catPt = CAT_BARBERIA;
@@ -161,11 +165,11 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
 
     // Acumular por día
     if (!contPorDia[iso]) contPorDia[iso] = { count: 0, total: 0 };
-    contPorDia[iso].count++;
+    if (!esVenta) contPorDia[iso].count++;   // una venta suelta no es un servicio
     contPorDia[iso].total += pagoBarbero;
 
     // Acumular por nombre de servicio
-    if (nombreSrv) {
+    if (nombreSrv && !esVenta) {
       if (!contServicios[nombreSrv]) contServicios[nombreSrv] = { count: 0, total: 0 };
       contServicios[nombreSrv].count++;
       contServicios[nombreSrv].total += pagoBarbero;
@@ -180,8 +184,10 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
       total: total, pagoBarbero: pagoBarbero, neto: neto, valorProductos: valorProd,
       propina: propina, metodo: metodo, descuento: descuento,
       productos: productos,
+      venta: esVenta,
       estado: estado || 'Pendiente'
     });
+    if (!esVenta) nServicios++;
   });
 
   // Ordenar servicios más recientes primero
@@ -200,7 +206,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     .slice(0, 8);
 
   return {
-    totalServicios: servicios.length,
+    totalServicios: nServicios,
     totalCobrado:   Math.round(totalCobrado),
     // Sin redondear al peso entero: con comisiones al 50% (u otro % impar)
     // una sola cita ya deja décimas (ej. 12.5), y Math.round() las subía a 13.
@@ -210,6 +216,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     totalPropinas:  Math.round(totalPropinas),
     totalBarberia:  Math.round(totalBarberia * 100) / 100,
     totalProductos: Math.round(totalProductos),
+    totalVentas:    Math.round(totalVentas),
     porPeriodo:     porPeriodo,
     topServicios:   topServicios,
     // Barbería primero, luego Tatuajes; dentro de cada una, el que más se le paga arriba.
@@ -314,8 +321,9 @@ function getAnalisisDashboard(token, desde, hasta) {
       valorProd = _valorProductos_(productos, precios);
     }
     var ingreso = total + valorProd;
+    var esVenta = _esVentaSuelta_(f[15]);   // venta de productos sin servicio
 
-    tot.atendidos++;
+    if (!esVenta) tot.atendidos++;
     tot.ingresos += ingreso;
     tot.ingresoServicios += total;
     tot.ingresoBebidas += valorProd;
@@ -325,21 +333,26 @@ function getAnalisisDashboard(token, desde, hasta) {
     if (!esActual) return;
 
     var pf = out.porFecha[iso] || (out.porFecha[iso] = { n: 0, ingresos: 0 });
-    pf.n++; pf.ingresos += ingreso;
+    if (!esVenta) pf.n++;
+    pf.ingresos += ingreso;
 
     var dow = (new Date(iso + 'T12:00:00').getDay() + 6) % 7;
     var hhmm = aHHMM_(f[1]);
     var hora = parseInt(String(hhmm).split(':')[0], 10);
-    if (!isNaN(hora) && hora >= 0 && hora < 24) out.heat[dow][hora]++;
+    // Las ventas sueltas suman plata y bebidas, pero no ocupan silla ni son
+    // servicio de ningún barbero.
+    if (!esVenta) {
+      if (!isNaN(hora) && hora >= 0 && hora < 24) out.heat[dow][hora]++;
 
-    var barbero = String(f[2] || '').trim() || '—';
-    var pb = out.porBarbero[barbero] || (out.porBarbero[barbero] = { n: 0, ingresos: 0 });
-    pb.n++; pb.ingresos += ingreso;
+      var barbero = String(f[2] || '').trim() || '—';
+      var pb = out.porBarbero[barbero] || (out.porBarbero[barbero] = { n: 0, ingresos: 0 });
+      pb.n++; pb.ingresos += ingreso;
 
-    String(f[5] || '').split(SEPARADOR_COMBO).forEach(function (n) {
-      n = n.trim();
-      if (n) out.porServicio[n] = (out.porServicio[n] || 0) + 1;
-    });
+      String(f[5] || '').split(SEPARADOR_COMBO).forEach(function (n) {
+        n = n.trim();
+        if (n) out.porServicio[n] = (out.porServicio[n] || 0) + 1;
+      });
+    }
 
     Object.keys(productos).forEach(function (n) {
       var b = out.bebidas[n] || (out.bebidas[n] = { v: 0, r: 0 });
@@ -355,7 +368,7 @@ function _dashboardVacio() {
   return {
     totalServicios: 0, totalCobrado: 0,
     totalComision: 0,  totalPropinas: 0,
-    totalBarberia: 0,  totalProductos: 0,
+    totalBarberia: 0,  totalProductos: 0, totalVentas: 0,
     porPeriodo: [], topServicios: [], porTrabajador: [], servicios: []
   };
 }
@@ -641,7 +654,7 @@ function _productosCatalogo_() {
     var ancho = Math.min(8, hi.getMaxColumns());
     hi.getRange(2, 1, hi.getLastRow() - 1, ancho).getValues().forEach(function (f) {
       var nombre = String(f[0] || '').trim();
-      if (nombre) out.push({ nombre: nombre, precio: Number(f[7]) || 0 });
+      if (nombre) out.push({ nombre: nombre, precio: Number(f[7]) || 0, stock: Number(f[5]) || 0 });
     });
   }
   if (!out.length) {
@@ -864,6 +877,109 @@ function cerrarServicioDashboard(token, id, datos) {
 
   } catch (err) {
     return { ok: false, error: 'No se pudo guardar el cierre: ' + err.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Venta de productos sin servicio (bebidas, ceras, etc.). Va al Registro como
+// una fila más, con "Mostrador" en Barbero para que no cuente como servicio
+// ni le sume comisión a nadie: los productos son 100% de la barbería.
+var VENTA_BARBERO  = 'Mostrador';
+var VENTA_SERVICIO = 'Venta de productos';
+
+/** Una fila del Registro es venta suelta si su nota empieza por "Venta ". */
+function _esVentaSuelta_(nota) {
+  return String(nota || '').trim().indexOf('Venta ') === 0;
+}
+
+/**
+ * Registra una venta de productos sin servicio y la descuenta del Inventario.
+ *
+ * @param {string} token
+ * @param {Object} datos - { productos:{Nombre:{v}}, metodo, cliente, desde, hasta }
+ * @returns {Object} { ok, id, valor, dashboard? } o { ok:false, error }
+ */
+function venderProductosDashboard(token, datos) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  datos = datos || {};
+
+  // Solo productos que existan en el Inventario, con cantidades enteras > 0.
+  var catalogo = {};
+  _productosCatalogo_().forEach(function (p) { catalogo[normalizar_(p.nombre)] = p; });
+  var vendidos = {}, hay = false;
+  var pin = datos.productos || {};
+  Object.keys(pin).forEach(function (n) {
+    var v = Math.floor(Number(pin[n] && pin[n].v) || 0);
+    var p = catalogo[normalizar_(n)];
+    if (v > 0 && p) { vendidos[p.nombre] = { v: v, r: 0 }; hay = true; }
+  });
+  if (!hay) return { ok: false, error: 'Elige al menos un producto.' };
+
+  var metodo = String(datos.metodo || '').trim();
+  if (!metodo) return { ok: false, error: 'Elige el método de pago.' };
+  var cliente = String(datos.cliente || '').trim() || 'Venta mostrador';
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); }
+  catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
+
+  try {
+    var hg = libro_().getSheetByName('Registro');
+    if (!hg) return { ok: false, error: 'No existe la hoja Registro.' };
+    if (hg.getMaxColumns() < 22) hg.insertColumnsAfter(hg.getMaxColumns(), 22 - hg.getMaxColumns());
+    _asegurarColValorProductos_(hg);
+
+    var ahora = new Date();
+    var iso = hoyISO_();
+    var p = iso.split('-');
+    var fecha = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+    var hora = Utilities.formatDate(ahora, TZ, 'HH:mm');
+    var DIAS_L = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    var id = 'V' + Utilities.formatDate(ahora, TZ, 'yyMMdd') + '-' +
+             Math.random().toString(36).slice(2, 7).toUpperCase();
+    var valor = _valorProductos_(vendidos);
+
+    // Primera fila con la col A vacía (igual que volcarAutomatico_): el
+    // Registro puede traer fórmulas más abajo y getLastRow() las cuenta.
+    var ult = hg.getLastRow();
+    var fila = ult + 1;
+    if (ult >= 2) {
+      var colA = hg.getRange(2, 1, ult - 1, 1).getValues();
+      for (var fi = 0; fi < colA.length; fi++) {
+        if (!colA[fi][0] || String(colA[fi][0]).trim() === '') { fila = fi + 2; break; }
+      }
+    } else {
+      fila = 2;
+    }
+    //   1 Fecha · 2 Hora · 3 Barbero · 4 Cliente · 5 Teléfono · 6 Servicio
+    //   7 Valor · 8 Desc · 9 Total · 10 Propina · 11 Método · 12 Estado
+    hg.getRange(fila, 1, 1, 12).setValues([[
+      fecha, hora, VENTA_BARBERO, cliente, '', VENTA_SERVICIO, 0, 0, 0, 0, metodo, 'Atendido'
+    ]]);
+    hg.getRange(fila, 1).setNumberFormat('DD/MM/YYYY');
+    // Comisión 0 (Mostrador no está en Config) · Neto = valor de los productos.
+    _aplicarFormulasComision_(hg, fila);
+    //   16 Notas (llave "Venta <id> · <quién vendió>") · 17 Año · 18 Mes · 19 Día · 20 Hora bloque · 21 Duración
+    hg.getRange(fila, 16, 1, 7).setValues([[
+      'Venta ' + id + ' · ' + s.nombre, fecha.getFullYear(), fecha.getMonth() + 1,
+      DIAS_L[(fecha.getDay() + 6) % 7], parseInt(hora.split(':')[0], 10), 0,
+      _formatearProductos_(vendidos)
+    ]]);
+    hg.getRange(fila, COL_VALOR_PROD).setValue(valor);
+
+    var hi = libro_().getSheetByName('Inventario');
+    if (hi) actualizarInventario_(hi, _deltaProductos_(vendidos, {}));
+
+    var salida = { ok: true, id: id, valor: valor };
+    if (datos.desde && datos.hasta) {
+      SpreadsheetApp.flush();
+      salida.dashboard = datosDashboard_(s.nombre, datos.desde, datos.hasta, s.rol === 'Dueño');
+    }
+    return salida;
+  } catch (err) {
+    return { ok: false, error: 'No se pudo guardar la venta: ' + err.message };
   } finally {
     lock.releaseLock();
   }

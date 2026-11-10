@@ -2461,6 +2461,8 @@ function sincronizarReservasConRegistro_() {
     if (!iso || !hora || aMin_(hora) === null || !barbero) return;   // fila incompleta: no se adivina
 
     var nota = String(f[15] || '').trim();
+    // Venta de productos sin servicio: no es una cita, no va al calendario.
+    if (_esVentaSuelta_(nota)) return;
     var id = nota.indexOf('Cita ') === 0 ? nota.substring(5).trim() : '';
     var dur = Number(f[20]) || 0;
 
