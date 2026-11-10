@@ -284,8 +284,9 @@ function _leerConfigHoja_() {
     }
   });
  
-  // Col G = Categoría del servicio. Vacía = Barbería (así los servicios que
-  // ya existían no cambian); cualquier texto con "tatu" = Tatuajes.
+  // Col G = Categoría del servicio (opcional). Un servicio es de Tatuajes si
+  // la col G o su propio nombre dicen "tatu…"; si no, es de Barbería (así los
+  // servicios que ya existían no cambian).
   var servicios = [];
   h.getRange('D5:G24').getValues().forEach(function (f) {
     if (String(f[0]).trim() && Number(f[2]) > 0) {
@@ -293,7 +294,8 @@ function _leerConfigHoja_() {
         nombre: String(f[0]).trim(),
         precio: Number(f[1]) || 0,
         duracion: Number(f[2]),
-        categoria: _categoriaDe_(f[3])
+        // Col G si la llenaron; si no, basta con que el nombre diga "tatuaje".
+        categoria: _categoriaDe_(String(f[3] || '') + ' ' + String(f[0]))
       });
     }
   });
