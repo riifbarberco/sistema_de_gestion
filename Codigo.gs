@@ -456,6 +456,17 @@ function leerBarberos_() {
 
 function _olvidarBarberos_() { _olvidarHojas_([HOJA_BARBEROS]); }
 
+/**
+ * PIN leído de la hoja. Si alguien escribe 0000 o 0123 en una celda con
+ * formato de número, Sheets borra los ceros de la izquierda y guarda 0 o 123:
+ * se vuelven a poner para que el PIN de 4 dígitos siga funcionando.
+ */
+function _pinDeCelda_(celda) {
+  var pin = String(celda == null ? '' : celda).replace(/\D/g, '');
+  if (typeof celda === 'number' && pin.length < 4) pin = ('0000' + pin).slice(-4);
+  return pin;
+}
+
 function _leerBarberosHoja_() {
   var h = libro_().getSheetByName(HOJA_BARBEROS);
   var mapa = {};
@@ -499,7 +510,7 @@ function _leerBarberosHoja_() {
       apikey: val(datos[f], cKey),
       calendario: val(datos[f], cCal),
       notificar: (estado !== 'no' && estado !== 'inactivo' && estado !== 'falso'),
-      pin: val(datos[f], cPin).replace(/\D/g, ''),
+      pin: _pinDeCelda_(cPin < 0 ? '' : datos[f][cPin]),
       colPin: cPin < 0 ? -1 : cPin + 1,
       rol: val(datos[f], cRol),
       tipo: val(datos[f], cTipo)       // "Tatuador" o vacío (= barbero)
