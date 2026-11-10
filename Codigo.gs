@@ -310,7 +310,7 @@ var CAT_TATUAJES = 'Tatuajes';
 
 /** Normaliza un texto de categoría o de tipo de trabajador a CAT_BARBERIA o CAT_TATUAJES. */
 function _categoriaDe_(texto) {
-  return /tatu/i.test(String(texto || '')) ? CAT_TATUAJES : CAT_BARBERIA;
+  return /tatu|tatt?oo/i.test(String(texto || '')) ? CAT_TATUAJES : CAT_BARBERIA;
 }
 
 /** Categoría de servicios que atiende un trabajador (por su "Tipo" en la hoja Barberos). */
