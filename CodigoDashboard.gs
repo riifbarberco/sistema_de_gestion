@@ -155,9 +155,12 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
         var catPt = CAT_BARBERIA;
         try { catPt = categoriaTrabajador_(fBarbero); } catch (e) {}
         pt = porTrabajador[fBarbero] = { nombre: fBarbero, categoria: catPt,
-                                         servicios: 0, cobrado: 0, pago: 0, barberia: 0 };
+                                         servicios: 0, cobrado: 0, pago: 0, barberia: 0,
+                                         minutos: 0, servicioCobrado: 0 };
       }
       pt.servicios++;
+      pt.minutos         += Number(f[20]) || 0;   // col 21 Duración (real si se marcó al cerrar)
+      pt.servicioCobrado += total;                // sin productos: para el cobro por hora
       pt.cobrado  += total + valorProd;
       pt.pago     += pagoBarbero;
       pt.barberia += neto;
@@ -181,6 +184,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
       fecha: iso, hora: hora, barbero: fBarbero,
       servicio: nombreSrv, cliente: cliente,
       valor: Number(f[6]) || 0,   // valor del servicio antes del descuento (col G)
+      duracion: Number(f[20]) || 0,
       total: total, pagoBarbero: pagoBarbero, neto: neto, valorProductos: valorProd,
       propina: propina, metodo: metodo, descuento: descuento,
       productos: productos,
@@ -758,6 +762,20 @@ function cerrarServicioDashboard(token, id, datos) {
 
     datos = datos || {};
 
+    // Valor final y tiempo real son solo de tatuajes. Se revisa ANTES de
+    // escribir nada, para no dejar un cierre a medias si no aplica.
+    var valorFinal = Number(datos.valorFinal);
+    var durReal = Math.round(Number(datos.duracionReal) || 0);
+    if (valorFinal > 0 || durReal > 0) {
+      var nombresCat = (datos.servicios && datos.servicios.length)
+        ? datos.servicios
+        : String(hg.getRange(fila, 6).getValue()).trim().split(SEPARADOR_COMBO);
+      var comboCat = _combinarServicios_(leerConfig_(), nombresCat);
+      if (!comboCat.ok || comboCat.categoria !== CAT_TATUAJES) {
+        return { ok: false, error: 'El valor final y el tiempo real solo se usan en tatuajes.' };
+      }
+    }
+
     var estado = String(datos.estado || '').trim();
     if (estado) hg.getRange(fila, 12).setValue(estado);
 
@@ -797,13 +815,7 @@ function cerrarServicioDashboard(token, id, datos) {
     // Los tatuajes tienen precio "desde": el real se acuerda según tamaño y
     // complejidad y se escribe al cerrar. Solo se acepta si el servicio de
     // la fila es de la categoría Tatuajes (los de barbería tienen precio fijo).
-    var valorFinal = Number(datos.valorFinal);
     if (valorFinal > 0) {
-      var comboFila = _combinarServicios_(leerConfig_(),
-        String(hg.getRange(fila, 6).getValue()).trim().split(SEPARADOR_COMBO));
-      if (!comboFila.ok || comboFila.categoria !== CAT_TATUAJES) {
-        return { ok: false, error: 'El valor final solo se puede cambiar en tatuajes.' };
-      }
       hg.getRange(fila, 7).setValue(valorFinal);
       valorServ = valorFinal;
       if (res) hres.getRange(res.fila, 9).setValue(valorFinal);
@@ -827,6 +839,19 @@ function cerrarServicioDashboard(token, id, datos) {
             hres.getRange(res.fila, 5).setValue(aTexto_(ahoraMinActual)); // col5 = Hora fin
           }
         }
+      }
+    }
+
+    // --- Tiempo real del tatuaje ---
+    // Queda en el Registro (col 21 Duración) para medir cobro por hora, y la
+    // cita en Reservas se ajusta a lo que de verdad duró (fin = inicio + real).
+    if (durReal > 0) {
+      durReal = Math.min(durReal, 1440);
+      hg.getRange(fila, 21).setValue(durReal);
+      if (res) {
+        hres.getRange(res.fila, 8).setValue(durReal);
+        var iniReal = aMin_(aHHMM_(res.f[3]));
+        if (iniReal !== null) hres.getRange(res.fila, 5).setValue(aTexto_(Math.min(iniReal + durReal, 1439)));
       }
     }
 
@@ -1316,6 +1341,13 @@ function crearCitaDashboard(token, d) {
   var combo = _combinarServicios_(cfg, d.servicios || d.servicio);
   if (!combo.ok) return { ok: false, error: combo.error };
 
+  // Tatuajes: la duración la elige quien agenda (cada tatuaje tarda distinto).
+  // Entre 30 min y 12 h; si no viene, queda la de Config.
+  var durElegida = Math.round(Number(d.duracion) || 0);
+  if (combo.categoria === CAT_TATUAJES && durElegida >= 30 && durElegida <= 720) {
+    combo.duracion = durElegida;
+  }
+
   // Uso interno: nombre y teléfono son opcionales (la reserva web sí los exige).
   var cliente = String(d.cliente || '').trim() || CLIENTE_SIN_NOMBRE;
   var tel = String(d.telefono || '').replace(/\D/g, '');
@@ -1490,6 +1522,18 @@ function modificarCitaDashboard(token, id, cambios) {
           // Nombre viejo o escrito a mano que ya no coincide con Config:
           // se conserva tal cual en vez de inventar un valor.
           combo = { ok: true, nombre: String(f[6]).trim(), precio: Number(f[8]) || 0, duracion: Number(f[7]) || 0 };
+        }
+      }
+
+      // Tatuajes: cada uno dura distinto. Si se pidió una duración nueva
+      // (30 min a 12 h) se usa esa; si no se tocaron los servicios, se conserva
+      // la que ya tenía la cita (mover o editar no la devuelve a la de Config).
+      if (combo.categoria === CAT_TATUAJES) {
+        var durNueva = Math.round(Number(cambios.duracion) || 0);
+        if (durNueva >= 30 && durNueva <= 720) {
+          combo.duracion = durNueva;
+        } else if (!(cambios.servicios && cambios.servicios.length) && Number(f[7]) > 0) {
+          combo.duracion = Number(f[7]);
         }
       }
 
