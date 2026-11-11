@@ -223,6 +223,8 @@
   }
   /* 5º KPI (solo dueño): en el celular ocupa toda la fila */
   .kpi-grid.cinco .kpi.barberia { grid-column: 1 / -1; }
+  .kpi-grid.seis .kpi.barberia { grid-column: auto; }
+  @media (min-width: 480px) { .kpi-grid.seis { grid-template-columns: repeat(3, 1fr); } }
   @media (min-width: 480px) {
     .kpi-grid.cinco .kpi.barberia { grid-column: auto; }
   }
@@ -866,7 +868,7 @@
 <body>
 
 <!-- Marca de prueba (se quita antes de pasar a main): dice qué versión corre -->
-<div id="marca-version" style="position:fixed;left:8px;bottom:6px;z-index:999;font-size:10px;opacity:.5;color:#888;pointer-events:none;">página: tatuador · servidor: (entra para ver)</div>
+<div id="marca-version" style="position:fixed;left:8px;bottom:6px;z-index:999;font-size:10px;opacity:.5;color:#888;pointer-events:none;">página: tatuador-v2 · servidor: (entra para ver)</div>
 
 <!-- PANTALLA DE LOGIN -->
 <div id="login-screen">
@@ -946,7 +948,10 @@
 
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:16px;">
       <div class="periodo-label" id="periodo-label" style="margin:0;"></div>
-      <button class="btn-refrescar" id="btn-refrescar" onclick="refrescar()">↻ Actualizar</button>
+      <span style="display:flex;gap:8px;">
+        <button class="btn-refrescar" onclick="abrirVenta()">🛒 Vender</button>
+        <button class="btn-refrescar" id="btn-refrescar" onclick="refrescar()">↻ Actualizar</button>
+      </span>
     </div>
 
     <!-- KPIs -->
@@ -958,6 +963,11 @@
       <div class="kpi green">
         <div class="num" id="k-comision">—</div>
         <div class="lbl">Tu pago</div>
+      </div>
+      <!-- Solo dueño, cuando hay tatuador: su pago aparte del de los barberos -->
+      <div class="kpi green" id="kpi-tatuador" style="display:none;">
+        <div class="num" id="k-tatuador">—</div>
+        <div class="lbl">Pago tatuador</div>
       </div>
       <div class="kpi">
         <div class="num" id="k-propinas">—</div>
@@ -1022,6 +1032,7 @@
           <button onclick="calNav(1)">›</button>
         </div>
         <button class="btn-primary" style="margin-left:auto;padding:8px 16px;" onclick="abrirNuevaCita()">＋</button>
+        <button class="btn-primary" style="padding:8px 12px;" onclick="abrirVenta()" title="Vender productos">🛒</button>
       </div>
       <div id="cal-area"><div class="spinner"></div></div>
       <div id="cal-tiempo" style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:6px;"></div>
@@ -1708,7 +1719,7 @@ function precargarFormularios() {
         formCita = o;
         // Marca de prueba: categorias solo existe en el CodigoDashboard.gs nuevo.
         var m = document.getElementById('marca-version');
-        if (m) m.textContent = 'página: tatuador · servidor: ' +
+        if (m) m.textContent = 'página: tatuador-v2 · servidor: ' +
           (o && o.categorias ? o.version : 'CodigoDashboard.gs VIEJO') +
           (o && o.categorias ? ' · ' + (o.yo || '') + ' = ' + (o.categorias[o.yo] || 'dueño') : '');
       })
@@ -1955,9 +1966,21 @@ function renderDashboard(d) {
   document.getElementById('k-comision').textContent  = pesos(d.totalComision || 0);
   document.getElementById('k-propinas').textContent  = pesos(d.totalPropinas || 0);
   document.getElementById('k-total').textContent     = pesos(d.totalCobrado || 0);
-  var hayTatuador = (d.porTrabajador || []).some(function(t) { return t.categoria === CAT_TATUAJES; });
-  document.querySelector('.kpi.green .lbl').textContent =
-    esDueno ? (hayTatuador ? 'Pago equipo' : 'Pago barberos') : 'Tu pago';
+  // Dueño: pago de barberos y de tatuadores por separado (cada uno con su tarjeta).
+  // Un empleado solo ve "Tu pago".
+  var pt = d.porTrabajador || [];
+  var tieneTat = esDueno && pt.some(function(t) { return t.categoria === CAT_TATUAJES; });
+  var hayTatuador = esDueno && (tieneTat || !!(formCita && formCita.categorias &&
+    Object.keys(formCita.categorias).some(function(n) { return formCita.categorias[n] === CAT_TATUAJES; })));
+  function pagoDe(cat) {
+    return pt.filter(function(t) { return t.categoria === cat; })
+             .reduce(function(a, t) { return a + t.pago; }, 0);
+  }
+  document.querySelector('.kpi.green .lbl').textContent = esDueno ? 'Pago barberos' : 'Tu pago';
+  if (hayTatuador) document.getElementById('k-comision').textContent = pesos(pagoDe(CAT_BARBERIA));
+  document.getElementById('k-tatuador').textContent = pesos(pagoDe(CAT_TATUAJES));
+  document.getElementById('kpi-tatuador').style.display = hayTatuador ? '' : 'none';
+  document.querySelector('.kpi-grid').classList.toggle('seis', hayTatuador);
   // Pago barbería = servicios − comisiones + bebidas vendidas. El barbero ve
   // el de sus propios servicios: es lo que le debe entregar a la barbería.
   document.getElementById('k-barberia').textContent  = pesos(d.totalBarberia || 0);
@@ -1971,7 +1994,7 @@ function renderDashboard(d) {
   document.getElementById('chart-title').textContent = titulo;
 
   // Pago por trabajador (solo el dueño ve a todos)
-  renderEquipo(esDueno ? (d.porTrabajador || []) : [], esDueno ? (d.totalVentas || 0) : 0);
+  renderEquipo(d.porTrabajador || [], d.totalVentas || 0, esDueno);
 
   // Gráfico
   renderChart(d.porPeriodo || []);
@@ -1996,10 +2019,15 @@ function pesos(n) {
  * cada uno con lo que cobró, lo que se le paga y lo que queda para la barbería.
  * Solo cuenta servicios atendidos del período elegido.
  */
-function renderEquipo(lista, ventas) {
+function renderEquipo(lista, ventas, esDueno) {
   var sec = document.getElementById('sec-equipo');
-  if (!lista.length && !ventas) { sec.hidden = true; return; }
-  sec.hidden = false;
+  sec.hidden = !esDueno;
+  if (!esDueno) return;
+  if (!lista.length && !ventas) {
+    document.getElementById('equipo-area').innerHTML =
+      '<div class="no-data">Todavía no hay servicios atendidos en este período.</div>';
+    return;
+  }
   function dinero(n) { return pesosExacto(Math.round(n || 0)); }
 
   var TITULOS = {};
