@@ -238,6 +238,7 @@
   .kpi .num {
     font-size: 26px;
     font-weight: 800;
+    white-space: nowrap;
     color: var(--gold);
     line-height: 1;
     margin-bottom: 4px;
@@ -1989,9 +1990,10 @@ function renderDashboard(d) {
 
   // KPIs
   document.getElementById('k-servicios').textContent = d.totalServicios || 0;
-  document.getElementById('k-comision').textContent  = pesos(d.totalComision || 0);
-  document.getElementById('k-propinas').textContent  = pesos(d.totalPropinas || 0);
-  document.getElementById('k-total').textContent     = pesos(d.totalCobrado || 0);
+  // Montos EXACTOS en las tarjetas (antes se abreviaban: $1.285.000 salía "$1.3M").
+  ponerMonto('k-comision', d.totalComision);
+  ponerMonto('k-propinas', d.totalPropinas);
+  ponerMonto('k-total',    d.totalCobrado);
   // Dueño: pago de barberos y de tatuadores por separado (cada uno con su tarjeta).
   // Un empleado solo ve "Tu pago".
   var pt = d.porTrabajador || [];
@@ -2002,13 +2004,13 @@ function renderDashboard(d) {
              .reduce(function(a, t) { return a + t.pago; }, 0);
   }
   document.querySelector('.kpi.green .lbl').textContent = esDueno ? 'Pago barberos' : 'Tu pago';
-  if (hayTatuador) document.getElementById('k-comision').textContent = pesos(pagoDe(CAT_BARBERIA));
-  document.getElementById('k-tatuador').textContent = pesos(pagoDe(CAT_TATUAJES));
+  if (hayTatuador) ponerMonto('k-comision', pagoDe(CAT_BARBERIA));
+  ponerMonto('k-tatuador', pagoDe(CAT_TATUAJES));
   document.getElementById('kpi-tatuador').style.display = hayTatuador ? '' : 'none';
   document.querySelector('.kpi-grid').classList.toggle('seis', hayTatuador);
   // Pago barbería = servicios − comisiones + bebidas vendidas. El barbero ve
   // el de sus propios servicios: es lo que le debe entregar a la barbería.
-  document.getElementById('k-barberia').textContent  = pesos(d.totalBarberia || 0);
+  ponerMonto('k-barberia', d.totalBarberia);
   document.getElementById('kpi-barberia').style.display = '';
   document.querySelector('.kpi-grid').classList.add('cinco');
 
@@ -2033,6 +2035,19 @@ function renderDashboard(d) {
   renderLista();
 }
 
+/**
+ * Pone un monto exacto ($1.285.000) en una tarjeta. Si es largo, achica la
+ * letra para que quepa en el celular sin partirse en dos líneas.
+ */
+function ponerMonto(id, n) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  var txt = pesosExacto(Math.round(n || 0));
+  el.textContent = txt;
+  el.style.fontSize = txt.length > 10 ? '17px' : txt.length > 8 ? '20px' : '';
+}
+
+/** Monto abreviado ($985k, $1.3M): solo para las barras del gráfico, donde no cabe el exacto. */
 function pesos(n) {
   if (n >= 1000000) return '$' + (n / 1000000).toFixed(1).replace('.0', '') + 'M';
   if (n >= 1000) return '$' + Math.round(n / 1000) + 'k';
@@ -4110,9 +4125,9 @@ function renderAnalisis(d) {
   html += '<div class="kpi-grid">' +
     anKpi(String(a.atendidos), 'Servicios atendidos', a.atendidos, b.atendidos, true) +
     (d.barbero
-      ? anKpi(pesos(a.pagoBarbero), 'Tu pago', a.pagoBarbero, b.pagoBarbero, true)
-      : anKpi(pesos(a.ingresos), 'Ingresos', a.ingresos, b.ingresos, true)) +
-    anKpi(pesos(ticket), 'Ticket promedio', ticket, ticketAnt, true) +
+      ? anKpi(pesosExacto(Math.round(a.pagoBarbero)), 'Tu pago', a.pagoBarbero, b.pagoBarbero, true)
+      : anKpi(pesosExacto(Math.round(a.ingresos)), 'Ingresos', a.ingresos, b.ingresos, true)) +
+    anKpi(pesosExacto(Math.round(ticket)), 'Ticket promedio', ticket, ticketAnt, true) +
     anKpi(noShowPct + '%', 'No show', noShowPct, noShowPctAnt, false, true) +
   '</div>';
 
@@ -4158,7 +4173,7 @@ function renderAnalisis(d) {
     .filter(function(x) { return x.n || x.r; })
     .sort(function(x, y) { return y.n - x.n; });
   if (beb.length) {
-    html += '<div class="section"><div class="section-title">Bebidas · ' + pesos(a.ingresoBebidas) + ' vendidos</div><div class="an-body">' +
+    html += '<div class="section"><div class="section-title">Bebidas · ' + pesosExacto(Math.round(a.ingresoBebidas)) + ' vendidos</div><div class="an-body">' +
       anBarrasH(beb, function(x) { return x.n; }, function(x) {
         return x.n + ' <small>vendidas' + (x.r ? ' · ' + x.r + ' cortesía' : '') + '</small>';
       }) + '</div></div>';
@@ -4182,7 +4197,9 @@ function anKpi(valor, etiqueta, actual, anterior, subirEsBueno, esPuntos) {
   } else {
     delta = 'sin datos del período anterior';
   }
-  return '<div class="kpi"><div class="num">' + valor + '</div><div class="lbl">' + etiqueta + '</div>' +
+  var largo = String(valor).length;   // montos exactos largos: letra más chica para que quepan
+  var tam = largo > 10 ? ' style="font-size:17px"' : largo > 8 ? ' style="font-size:20px"' : '';
+  return '<div class="kpi"><div class="num"' + tam + '>' + valor + '</div><div class="lbl">' + etiqueta + '</div>' +
     '<div class="delta">' + delta + '</div></div>';
 }
 
@@ -4381,7 +4398,7 @@ function anInsights(d) {
       Math.round(a.noShow * 100 / tot) + '% de las citas). Confirmar por WhatsApp el día antes ayuda a bajarlo.']);
   }
   if (a.ingresoBebidas) {
-    out.push(['🥤', (d.barbero ? 'Vendiste ' : 'Las bebidas dejaron ') + '<b>' + pesos(a.ingresoBebidas) + '</b> en bebidas (' +
+    out.push(['🥤', (d.barbero ? 'Vendiste ' : 'Las bebidas dejaron ') + '<b>' + pesosExacto(Math.round(a.ingresoBebidas)) + '</b> en bebidas (' +
       Math.round(a.ingresoBebidas * 100 / a.ingresos) + '% de los ingresos).']);
   }
   return out.map(function(x) { return '<li data-ico="' + x[0] + '">' + x[1] + '</li>'; }).join('');
