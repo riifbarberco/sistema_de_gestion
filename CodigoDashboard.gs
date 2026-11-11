@@ -1720,7 +1720,7 @@ function notificarCitaDashboard(token, id) {
     hora: c.hora, fin: c.fin, duracion: c.duracion, precio: c.precio,
     nombre: c.cliente, telefono: c.telefono, notas: c.notas
   });
-  if (!link) return { ok: false, error: 'Ese barbero no tiene WhatsApp cargado en la hoja Barberos.' };
+  if (!link) return { ok: false, error: c.barbero + ' no tiene WhatsApp cargado en la hoja Barberos.' };
   return { ok: true, link: link };
 }
 

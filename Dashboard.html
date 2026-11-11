@@ -1311,7 +1311,7 @@
 
     <button class="btn-primary" id="ed-guardar" onclick="guardarEdicion()">Guardar cambios</button>
     <button class="btn-sec" onclick="cerrarDesdeEdicion()">💰 Cerrar / cobrar este servicio</button>
-    <button class="btn-sec" onclick="avisarBarberoCita()">Avisar al barbero por WhatsApp</button>
+    <button class="btn-sec" id="ed-avisar" onclick="avisarBarberoCita()">Avisar al barbero por WhatsApp</button>
     <button class="btn-sec" onclick="marcarNoShow()">🚫 No vino (no show)</button>
     <button class="btn-peligro" onclick="cancelarCitaActual()">Cancelar (el cliente avisó)</button>
     <button class="btn-peligro solo-dueno" style="margin-top:10px;" onclick="eliminarCita(editId)">🗑 Borrar definitivamente</button>
@@ -3824,6 +3824,10 @@ function pintarEditar(c) {
   document.getElementById('ed-cliente').value = c.cliente;
   document.getElementById('ed-telefono').value = c.telefono;
   document.getElementById('ed-notas').value = c.notas || '';
+
+  // "Avisar al tatuador" si la cita es de tatuaje; "al barbero" si es de barbería.
+  document.getElementById('ed-avisar').textContent =
+    'Avisar al ' + (catTrabajador(c.barbero) === CAT_TATUAJES ? 'tatuador' : 'barbero') + ' por WhatsApp';
 
   var selB = document.getElementById('ed-barbero');
   selB.innerHTML = '';

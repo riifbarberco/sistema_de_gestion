@@ -1324,7 +1324,8 @@ function _tgTextoCita_(r, conBarbero) {
     _tgEsc_(r.servicio) + '\n' +
     '👤 ' + _tgEsc_(r.nombre || 'Sin nombre') +
     (MOSTRAR_TELEFONO_A_BARBERO && r.telefono ? ' · ' + _tgEsc_(r.telefono) : '') + '\n' +
-    (conBarbero ? '✂️ ' + _tgEsc_(r.barbero) + '\n' : '') +
+    (conBarbero ? (categoriaTrabajador_(r.barbero) === CAT_TATUAJES ? '🖋️ ' : '✂️ ') +
+                  _tgEsc_(r.barbero) + '\n' : '') +
     '💵 ' + _tgEsc_(valorTxt_(r)) +
     (r.notas ? '\n📝 ' + _tgEsc_(r.notas) : '');
 }
