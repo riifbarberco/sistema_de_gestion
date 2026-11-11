@@ -198,6 +198,19 @@ function duracionTexto_(m) {
 function pesos_(n) {
   return '$' + Number(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
+
+/**
+ * Valor de una cita para correos y avisos. Los tatuajes llevan "desde": el
+ * precio real se acuerda en el local según tamaño y complejidad.
+ */
+function valorTxt_(r) {
+  var desde = '';
+  try {
+    var c = _combinarServicios_(leerConfig_(), String(r.servicio || '').split(SEPARADOR_COMBO));
+    if (c.ok && c.categoria === CAT_TATUAJES) desde = 'desde ';
+  } catch (e) {}
+  return desde + pesos_(r.precio);
+}
  
 // ---------- Lectura de configuración ----------
 // ---------- Memoria de hojas que casi no cambian ----------
@@ -221,9 +234,9 @@ function _cacheHoja_(clave, leer) {
 }
 
 var CLAVE_HOJA = {};
-CLAVE_HOJA[HOJA_CONFIG]   = 'hoja_config';
+CLAVE_HOJA[HOJA_CONFIG]   = 'hoja_config_v2';
 CLAVE_HOJA[HOJA_HORARIOS] = 'hoja_horarios';
-CLAVE_HOJA[HOJA_BARBEROS] = 'hoja_barberos';
+CLAVE_HOJA[HOJA_BARBEROS] = 'hoja_barberos_v2';
 CLAVE_HOJA[HOJA_BLOQUEOS] = 'hoja_bloqueos';
 
 /** Borra la memoria de esas hojas (nombres de hoja); sin argumento, de todas. */
@@ -245,7 +258,7 @@ function onEdit(e) {
   } catch (err) {}
 }
 
-function leerConfig_() { return _cacheHoja_('hoja_config', _leerConfigHoja_); }
+function leerConfig_() { return _cacheHoja_('hoja_config_v2', _leerConfigHoja_); }
 function leerHorarios_() { return _cacheHoja_('hoja_horarios', _leerHorariosHoja_); }
 
 /** Bloqueos como [{quien, fecha, desde, hasta, motivo}] (fechas ya en texto). */
@@ -271,18 +284,40 @@ function _leerConfigHoja_() {
     }
   });
  
+  // Col G = Categoría del servicio (opcional). Un servicio es de Tatuajes si
+  // la col G o su propio nombre dicen "tatu…"; si no, es de Barbería (así los
+  // servicios que ya existían no cambian).
   var servicios = [];
-  h.getRange('D5:F24').getValues().forEach(function (f) {
+  h.getRange('D5:G24').getValues().forEach(function (f) {
     if (String(f[0]).trim() && Number(f[2]) > 0) {
       servicios.push({
         nombre: String(f[0]).trim(),
         precio: Number(f[1]) || 0,
-        duracion: Number(f[2])
+        duracion: Number(f[2]),
+        // Col G si la llenaron; si no, basta con que el nombre diga "tatuaje".
+        categoria: _categoriaDe_(String(f[3] || '') + ' ' + String(f[0]))
       });
     }
   });
- 
+
   return { barberos: barberos, servicios: servicios };
+}
+
+// Categorías de servicio. Los trabajadores se dividen igual: barberos hacen
+// Barbería y tatuadores hacen Tatuajes (columna "Tipo" de la hoja Barberos).
+var CAT_BARBERIA = 'Barbería';
+var CAT_TATUAJES = 'Tatuajes';
+
+/** Normaliza un texto de categoría o de tipo de trabajador a CAT_BARBERIA o CAT_TATUAJES. */
+function _categoriaDe_(texto) {
+  return /tatu|tatt?oo/i.test(String(texto || '')) ? CAT_TATUAJES : CAT_BARBERIA;
+}
+
+/** Categoría de servicios que atiende un trabajador (por su "Tipo" en la hoja Barberos). */
+function categoriaTrabajador_(nombre) {
+  var b = leerBarberos_()[nombre];
+  // Se acepta "Tatuador" en la columna Tipo o, si no existe, en la columna Rol.
+  return _categoriaDe_(b && ((b.tipo || '') + ' ' + (b.rol || '')));
 }
 
 // Cómo se unen los nombres cuando una cita tiene varios servicios.
@@ -309,11 +344,16 @@ function _combinarServicios_(cfg, nombres) {
     if (!s) return { ok: false, error: '"' + nombres[i] + '" ya no está disponible. Recarga la página.' };
     elegidos.push(s);
   }
+  var categoria = elegidos[0].categoria || CAT_BARBERIA;
+  if (elegidos.some(function (s) { return (s.categoria || CAT_BARBERIA) !== categoria; })) {
+    return { ok: false, error: 'Barbería y tatuajes van en citas separadas.' };
+  }
   return {
     ok: true,
     nombre: elegidos.map(function (s) { return s.nombre; }).join(SEPARADOR_COMBO),
     precio: elegidos.reduce(function (a, s) { return a + s.precio; }, 0),
-    duracion: elegidos.reduce(function (a, s) { return a + s.duracion; }, 0)
+    duracion: elegidos.reduce(function (a, s) { return a + s.duracion; }, 0),
+    categoria: categoria
   };
 }
 
@@ -414,10 +454,21 @@ function leerBarberos_() {
   // Se usa en casi todo (sesión, calendario, avisos, ocupación…): se lee la
   // hoja una sola vez por petición. Quien escriba en Barberos y vuelva a leer
   // en la misma ejecución debe llamar antes a _olvidarBarberos_().
-  return _cacheHoja_('hoja_barberos', _leerBarberosHoja_);
+  return _cacheHoja_('hoja_barberos_v2', _leerBarberosHoja_);
 }
 
 function _olvidarBarberos_() { _olvidarHojas_([HOJA_BARBEROS]); }
+
+/**
+ * PIN leído de la hoja. Si alguien escribe 0000 o 0123 en una celda con
+ * formato de número, Sheets borra los ceros de la izquierda y guarda 0 o 123:
+ * se vuelven a poner para que el PIN de 4 dígitos siga funcionando.
+ */
+function _pinDeCelda_(celda) {
+  var pin = String(celda == null ? '' : celda).replace(/\D/g, '');
+  if (typeof celda === 'number' && pin.length < 4) pin = ('0000' + pin).slice(-4);
+  return pin;
+}
 
 function _leerBarberosHoja_() {
   var h = libro_().getSheetByName(HOJA_BARBEROS);
@@ -444,7 +495,8 @@ function _leerBarberosHoja_() {
   var cNotif  = col('Notificar', 'Estado', 'Activo');
   var cPin    = col('PIN', 'Clave', 'Contraseña');
   var cRol    = col('Rol', 'Perfil');
- 
+  var cTipo   = col('Tipo', 'Oficio', 'Especialidad');
+
   if (cNombre < 0) throw new Error(
     'La hoja Barberos no tiene una columna llamada "Nombre". Revísala.');
  
@@ -461,9 +513,10 @@ function _leerBarberosHoja_() {
       apikey: val(datos[f], cKey),
       calendario: val(datos[f], cCal),
       notificar: (estado !== 'no' && estado !== 'inactivo' && estado !== 'falso'),
-      pin: val(datos[f], cPin).replace(/\D/g, ''),
+      pin: _pinDeCelda_(cPin < 0 ? '' : datos[f][cPin]),
       colPin: cPin < 0 ? -1 : cPin + 1,
-      rol: val(datos[f], cRol)
+      rol: val(datos[f], cRol),
+      tipo: val(datos[f], cTipo)       // "Tatuador" o vacío (= barbero)
     };
   }
   return mapa;
@@ -569,26 +622,38 @@ function getDatosIniciales() {
       mes: Utilities.formatDate(d, TZ, 'MMM')
     });
   }
+  // { nombre: categoría } — la página de reservas solo ofrece, para cada
+  // categoría de servicio, los trabajadores que la atienden.
+  var categorias = {};
+  cfg.barberos.forEach(function (b) { categorias[b.nombre] = categoriaTrabajador_(b.nombre); });
   return {
     negocio: NEGOCIO,
     direccion: DIRECCION,
     servicios: cfg.servicios,
     barberos: cfg.barberos.map(function (b) { return b.nombre; }),
+    categorias: categorias,
     dias: dias,
     tieneHorarios: Object.keys(horarios).length > 0
   };
 }
- 
-function getCupos(barbero, iso, duracion) {
+
+/**
+ * @param {string} barbero  - nombre, o '*' = cualquiera que esté libre
+ * @param {string} categoria - con '*', solo se buscan trabajadores de esta
+ *                             categoría (Barbería por defecto)
+ */
+function getCupos(barbero, iso, duracion, categoria) {
   duracion = Number(duracion);
   var horarios = leerHorarios_();
   var cfg = leerConfig_();
   var dia = diaSemana_(iso);
   var esHoy = (iso === hoyISO_());
   var corte = ahoraMin_() + ANTICIPACION_H * 60;
- 
+  categoria = _categoriaDe_(categoria);
+
   var candidatos = (barbero === '*')
     ? cfg.barberos.map(function (b) { return b.nombre; })
+        .filter(function (n) { return categoriaTrabajador_(n) === categoria; })
     : [barbero];
  
   var mapa = {}, abreMin = null, cierraMin = null;
@@ -647,7 +712,11 @@ function crearReserva(d) {
     if (nombre.length < 3) return { ok: false, error: 'Escribe tu nombre completo.' };
     if (tel.length < 7) return { ok: false, error: 'Escribe un número de teléfono válido.' };
 
-    var estado = getCupos(d.barbero, d.fecha, combo.duracion);
+    if (d.barbero !== '*' && categoriaTrabajador_(d.barbero) !== combo.categoria) {
+      return { ok: false, error: d.barbero + ' no atiende ' + combo.categoria.toLowerCase() + '. Elige otro.' };
+    }
+
+    var estado = getCupos(d.barbero, d.fecha, combo.duracion, combo.categoria);
     var cupo = estado.cupos.filter(function (c) { return c.hora === d.hora; })[0];
     if (!cupo) return { ok: false, error: 'Ese horario se acaba de ocupar. Escoge otro, por favor.' };
 
@@ -801,7 +870,7 @@ function crearEvento_(r) {
           'Escribirle: https://wa.me/57' + String(r.telefono).replace(/^57/, '') + '\n'
         : '') +
       'Servicio: ' + r.servicio + ' (' + duracionTexto_(r.duracion) + ')\n' +
-      'Valor: ' + pesos_(r.precio) + '\n' +
+      'Valor: ' + valorTxt_(r) + '\n' +
       (r.notas ? 'Notas: ' + r.notas + '\n' : '') +
       'Código: ' + r.id + '\n\n' +
       '— — —\n' +
@@ -923,7 +992,7 @@ function notificarBarbero_(r, tipo) {
       ? 'Teléfono: ' + r.telefono + '\n' +
         'Escribirle: https://wa.me/57' + String(r.telefono).replace(/^57/, '') + '\n'
       : '') +
-    'Valor: ' + pesos_(r.precio) + '\n' +
+    'Valor: ' + valorTxt_(r) + '\n' +
     (r.notas ? 'Notas: ' + r.notas + '\n' : '') +
     '\nCódigo: ' + r.id;
  
@@ -936,7 +1005,7 @@ function notificarBarbero_(r, tipo) {
     enviarWhatsApp_(b.whatsapp, b.apikey,
       etiqWa + '\n' +
       cuando + '\n' + r.servicio + '\n' +
-      r.nombre + (r.telefono ? ' — ' + r.telefono : '') + '\n' + pesos_(r.precio));
+      r.nombre + (r.telefono ? ' — ' + r.telefono : '') + '\n' + valorTxt_(r));
   }
 
   if (USAR_WHATSAPP && WHATSAPP && WA_APIKEY_DUENO) {
@@ -962,7 +1031,7 @@ function linkAvisoBarbero_(r) {
     r.hora + ' a ' + r.fin + ' (' + duracionTexto_(r.duracion) + ')\n' +
     'Cliente: ' + r.nombre + '\n' +
     (MOSTRAR_TELEFONO_A_BARBERO && r.telefono ? 'Teléfono: ' + r.telefono + '\n' : '') +
-    'Valor: ' + pesos_(r.precio) + '\n' +
+    'Valor: ' + valorTxt_(r) + '\n' +
     (r.notas ? 'Nota: ' + r.notas + '\n' : '') +
     'Código: ' + r.id;
  
@@ -1018,7 +1087,7 @@ function enviarCorreos_(r, emailCliente) {
       'Servicio: ' + r.servicio + '\n' +
       'Cuándo: ' + fechaTxt + ' a las ' + r.hora + '\n' +
       'Con: ' + r.barbero + '\n' +
-      'Valor: ' + pesos_(r.precio) + '\n' +
+      'Valor: ' + valorTxt_(r) + '\n' +
       'Dónde: ' + DIRECCION + '\n\n' +
       'Código de tu cita: ' + r.id + '\n' +
       'Si no puedes venir, cancela aquí y le damos el cupo a alguien más:\n' + url + '\n\n' +
@@ -1032,7 +1101,7 @@ function enviarCorreos_(r, emailCliente) {
     try {
       var link = linkAvisoBarbero_(r);
       MailApp.sendEmail(EMAIL_AVISO, 'Nueva cita: ' + fechaTxt + ' ' + r.hora + ' — ' + r.barbero,
-        r.nombre + ' (' + r.telefono + ')\n' + r.servicio + ' · ' + pesos_(r.precio) + '\n' +
+        r.nombre + ' (' + r.telefono + ')\n' + r.servicio + ' · ' + valorTxt_(r) + '\n' +
         fechaTxt + ' ' + r.hora + '–' + r.fin + '\nCon ' + r.barbero + '\nCódigo: ' + r.id +
         (link ? '\n\n— — —\nAvisarle a ' + r.barbero + ' por WhatsApp (abre el chat con el ' +
                 'mensaje ya escrito, solo le das enviar):\n' + link : ''));
@@ -1254,8 +1323,9 @@ function _tgTextoCita_(r, conBarbero) {
     _tgEsc_(r.servicio) + '\n' +
     '👤 ' + _tgEsc_(r.nombre || 'Sin nombre') +
     (MOSTRAR_TELEFONO_A_BARBERO && r.telefono ? ' · ' + _tgEsc_(r.telefono) : '') + '\n' +
-    (conBarbero ? '✂️ ' + _tgEsc_(r.barbero) + '\n' : '') +
-    '💵 ' + _tgEsc_(pesos_(r.precio)) +
+    (conBarbero ? (categoriaTrabajador_(r.barbero) === CAT_TATUAJES ? '🖋️ ' : '✂️ ') +
+                  _tgEsc_(r.barbero) + '\n' : '') +
+    '💵 ' + _tgEsc_(valorTxt_(r)) +
     (r.notas ? '\n📝 ' + _tgEsc_(r.notas) : '');
 }
 
@@ -2391,6 +2461,8 @@ function sincronizarReservasConRegistro_() {
     if (!iso || !hora || aMin_(hora) === null || !barbero) return;   // fila incompleta: no se adivina
 
     var nota = String(f[15] || '').trim();
+    // Venta de productos sin servicio: no es una cita, no va al calendario.
+    if (_esVentaSuelta_(nota)) return;
     var id = nota.indexOf('Cita ') === 0 ? nota.substring(5).trim() : '';
     var dur = Number(f[20]) || 0;
 

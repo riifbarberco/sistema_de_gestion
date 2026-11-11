@@ -82,6 +82,9 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
   var precios = null;       // precios del Inventario, solo si alguna fila los necesita
   var contPorDia    = {};   // { 'YYYY-MM-DD': { count, total } }
   var contServicios = {};   // { 'Nombre servicio': { count, total } }
+  var porTrabajador = {};   // { nombre: { categoria, servicios, cobrado, pago, barberia } } (solo atendidos)
+  var totalVentas   = 0;    // $ de productos vendidos sin servicio (ventas de mostrador)
+  var nServicios    = 0;    // servicios de verdad (sin contar ventas sueltas)
 
   datos.forEach(function(f) {
     // Columnas del Registro (base-1 en Sheets → base-0 aquí):
@@ -116,6 +119,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     // id de la cita, guardado en la col 16 (Notas) como "Cita <id>"
     var nota = String(f[15] || '').trim();
     var citaId = (nota.indexOf('Cita ') === 0) ? nota.substring(5).trim() : '';
+    var esVenta = _esVentaSuelta_(nota);   // venta de productos sin servicio
 
     // Productos: { 'Agua': {v,r}, ... } — acepta formato nuevo (texto) y viejo.
     var productos = _leerProductosRegistro_([f[21], f[22], f[23], f[24], f[25], f[26]]);
@@ -141,14 +145,34 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     totalPropinas  += propina;
     totalBarberia  += neto;
     totalProductos += valorProd;
+    if (esVenta) totalVentas += valorProd;
+
+    // Pago por trabajador (barberos y tatuadores por separado), para que el
+    // dueño vea cuánto entra y cuánto se le paga a cada uno.
+    if (atendido && fBarbero && !esVenta) {
+      var pt = porTrabajador[fBarbero];
+      if (!pt) {
+        var catPt = CAT_BARBERIA;
+        try { catPt = categoriaTrabajador_(fBarbero); } catch (e) {}
+        pt = porTrabajador[fBarbero] = { nombre: fBarbero, categoria: catPt,
+                                         servicios: 0, cobrado: 0, pago: 0, barberia: 0,
+                                         minutos: 0, servicioCobrado: 0 };
+      }
+      pt.servicios++;
+      pt.minutos         += Number(f[20]) || 0;   // col 21 Duración (real si se marcó al cerrar)
+      pt.servicioCobrado += total;                // sin productos: para el cobro por hora
+      pt.cobrado  += total + valorProd;
+      pt.pago     += pagoBarbero;
+      pt.barberia += neto;
+    }
 
     // Acumular por día
     if (!contPorDia[iso]) contPorDia[iso] = { count: 0, total: 0 };
-    contPorDia[iso].count++;
+    if (!esVenta) contPorDia[iso].count++;   // una venta suelta no es un servicio
     contPorDia[iso].total += pagoBarbero;
 
     // Acumular por nombre de servicio
-    if (nombreSrv) {
+    if (nombreSrv && !esVenta) {
       if (!contServicios[nombreSrv]) contServicios[nombreSrv] = { count: 0, total: 0 };
       contServicios[nombreSrv].count++;
       contServicios[nombreSrv].total += pagoBarbero;
@@ -159,11 +183,15 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
       id: citaId,
       fecha: iso, hora: hora, barbero: fBarbero,
       servicio: nombreSrv, cliente: cliente,
+      valor: Number(f[6]) || 0,   // valor del servicio antes del descuento (col G)
+      duracion: Number(f[20]) || 0,
       total: total, pagoBarbero: pagoBarbero, neto: neto, valorProductos: valorProd,
       propina: propina, metodo: metodo, descuento: descuento,
       productos: productos,
+      venta: esVenta,
       estado: estado || 'Pendiente'
     });
+    if (!esVenta) nServicios++;
   });
 
   // Ordenar servicios más recientes primero
@@ -182,7 +210,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     .slice(0, 8);
 
   return {
-    totalServicios: servicios.length,
+    totalServicios: nServicios,
     totalCobrado:   Math.round(totalCobrado),
     // Sin redondear al peso entero: con comisiones al 50% (u otro % impar)
     // una sola cita ya deja décimas (ej. 12.5), y Math.round() las subía a 13.
@@ -192,8 +220,23 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     totalPropinas:  Math.round(totalPropinas),
     totalBarberia:  Math.round(totalBarberia * 100) / 100,
     totalProductos: Math.round(totalProductos),
+    totalVentas:    Math.round(totalVentas),
+    // Nombres de los tatuadores (solo para el dueño): así la tarjeta "Pago
+    // tatuador" sale aunque en el período todavía no haya tatuajes.
+    tatuadores:     verTodo ? _tatuadores_() : [],
     porPeriodo:     porPeriodo,
     topServicios:   topServicios,
+    // Barbería primero, luego Tatuajes; dentro de cada una, el que más se le paga arriba.
+    porTrabajador:  Object.keys(porTrabajador).map(function (k) {
+                      var t = porTrabajador[k];
+                      t.cobrado  = Math.round(t.cobrado);
+                      t.pago     = Math.round(t.pago * 100) / 100;
+                      t.barberia = Math.round(t.barberia * 100) / 100;
+                      return t;
+                    }).sort(function (a, b) {
+                      if (a.categoria !== b.categoria) return a.categoria === CAT_BARBERIA ? -1 : 1;
+                      return b.pago - a.pago;
+                    }),
     servicios:      servicios
   };
 }
@@ -285,8 +328,9 @@ function getAnalisisDashboard(token, desde, hasta) {
       valorProd = _valorProductos_(productos, precios);
     }
     var ingreso = total + valorProd;
+    var esVenta = _esVentaSuelta_(f[15]);   // venta de productos sin servicio
 
-    tot.atendidos++;
+    if (!esVenta) tot.atendidos++;
     tot.ingresos += ingreso;
     tot.ingresoServicios += total;
     tot.ingresoBebidas += valorProd;
@@ -296,21 +340,26 @@ function getAnalisisDashboard(token, desde, hasta) {
     if (!esActual) return;
 
     var pf = out.porFecha[iso] || (out.porFecha[iso] = { n: 0, ingresos: 0 });
-    pf.n++; pf.ingresos += ingreso;
+    if (!esVenta) pf.n++;
+    pf.ingresos += ingreso;
 
     var dow = (new Date(iso + 'T12:00:00').getDay() + 6) % 7;
     var hhmm = aHHMM_(f[1]);
     var hora = parseInt(String(hhmm).split(':')[0], 10);
-    if (!isNaN(hora) && hora >= 0 && hora < 24) out.heat[dow][hora]++;
+    // Las ventas sueltas suman plata y bebidas, pero no ocupan silla ni son
+    // servicio de ningún barbero.
+    if (!esVenta) {
+      if (!isNaN(hora) && hora >= 0 && hora < 24) out.heat[dow][hora]++;
 
-    var barbero = String(f[2] || '').trim() || '—';
-    var pb = out.porBarbero[barbero] || (out.porBarbero[barbero] = { n: 0, ingresos: 0 });
-    pb.n++; pb.ingresos += ingreso;
+      var barbero = String(f[2] || '').trim() || '—';
+      var pb = out.porBarbero[barbero] || (out.porBarbero[barbero] = { n: 0, ingresos: 0 });
+      pb.n++; pb.ingresos += ingreso;
 
-    String(f[5] || '').split(SEPARADOR_COMBO).forEach(function (n) {
-      n = n.trim();
-      if (n) out.porServicio[n] = (out.porServicio[n] || 0) + 1;
-    });
+      String(f[5] || '').split(SEPARADOR_COMBO).forEach(function (n) {
+        n = n.trim();
+        if (n) out.porServicio[n] = (out.porServicio[n] || 0) + 1;
+      });
+    }
 
     Object.keys(productos).forEach(function (n) {
       var b = out.bebidas[n] || (out.bebidas[n] = { v: 0, r: 0 });
@@ -326,8 +375,8 @@ function _dashboardVacio() {
   return {
     totalServicios: 0, totalCobrado: 0,
     totalComision: 0,  totalPropinas: 0,
-    totalBarberia: 0,  totalProductos: 0,
-    porPeriodo: [], topServicios: [], servicios: []
+    totalBarberia: 0,  totalProductos: 0, totalVentas: 0,
+    porPeriodo: [], topServicios: [], porTrabajador: [], tatuadores: _tatuadores_(), servicios: []
   };
 }
 
@@ -612,7 +661,7 @@ function _productosCatalogo_() {
     var ancho = Math.min(8, hi.getMaxColumns());
     hi.getRange(2, 1, hi.getLastRow() - 1, ancho).getValues().forEach(function (f) {
       var nombre = String(f[0] || '').trim();
-      if (nombre) out.push({ nombre: nombre, precio: Number(f[7]) || 0 });
+      if (nombre) out.push({ nombre: nombre, precio: Number(f[7]) || 0, stock: Number(f[5]) || 0 });
     });
   }
   if (!out.length) {
@@ -713,6 +762,20 @@ function cerrarServicioDashboard(token, id, datos) {
 
     datos = datos || {};
 
+    // Valor final y tiempo real son solo de tatuajes. Se revisa ANTES de
+    // escribir nada, para no dejar un cierre a medias si no aplica.
+    var valorFinal = Number(datos.valorFinal);
+    var durReal = Math.round(Number(datos.duracionReal) || 0);
+    if (valorFinal > 0 || durReal > 0) {
+      var nombresCat = (datos.servicios && datos.servicios.length)
+        ? datos.servicios
+        : String(hg.getRange(fila, 6).getValue()).trim().split(SEPARADOR_COMBO);
+      var comboCat = _combinarServicios_(leerConfig_(), nombresCat);
+      if (!comboCat.ok || comboCat.categoria !== CAT_TATUAJES) {
+        return { ok: false, error: 'El valor final y el tiempo real solo se usan en tatuajes.' };
+      }
+    }
+
     var estado = String(datos.estado || '').trim();
     if (estado) hg.getRange(fila, 12).setValue(estado);
 
@@ -748,6 +811,16 @@ function cerrarServicioDashboard(token, id, datos) {
       }
     }
 
+    // --- Valor final del tatuaje ---
+    // Los tatuajes tienen precio "desde": el real se acuerda según tamaño y
+    // complejidad y se escribe al cerrar. Solo se acepta si el servicio de
+    // la fila es de la categoría Tatuajes (los de barbería tienen precio fijo).
+    if (valorFinal > 0) {
+      hg.getRange(fila, 7).setValue(valorFinal);
+      valorServ = valorFinal;
+      if (res) hres.getRange(res.fila, 9).setValue(valorFinal);
+    }
+
     // --- Liberar el tiempo sobrante si el servicio terminó antes de lo planeado ---
     // Solo aplica a citas de HOY cerradas como "Atendido". Si el barbero cierra
     // tarde (después de la hora de fin planeada), no se toca nada: la cita nunca
@@ -766,6 +839,19 @@ function cerrarServicioDashboard(token, id, datos) {
             hres.getRange(res.fila, 5).setValue(aTexto_(ahoraMinActual)); // col5 = Hora fin
           }
         }
+      }
+    }
+
+    // --- Tiempo real del tatuaje ---
+    // Queda en el Registro (col 21 Duración) para medir cobro por hora, y la
+    // cita en Reservas se ajusta a lo que de verdad duró (fin = inicio + real).
+    if (durReal > 0) {
+      durReal = Math.min(durReal, 1440);
+      hg.getRange(fila, 21).setValue(durReal);
+      if (res) {
+        hres.getRange(res.fila, 8).setValue(durReal);
+        var iniReal = aMin_(aHHMM_(res.f[3]));
+        if (iniReal !== null) hres.getRange(res.fila, 5).setValue(aTexto_(Math.min(iniReal + durReal, 1439)));
       }
     }
 
@@ -824,6 +910,117 @@ function cerrarServicioDashboard(token, id, datos) {
   }
 }
 
+// Venta de productos sin servicio (bebidas, ceras, etc.). Va al Registro como
+// una fila más, con "Mostrador" en Barbero para que no cuente como servicio
+// ni le sume comisión a nadie: los productos son 100% de la barbería.
+var VENTA_BARBERO  = 'Mostrador';
+var VENTA_SERVICIO = 'Venta de productos';
+
+/** Nombres de Config que son tatuadores (Tipo/Rol "Tatuador" en la hoja Barberos). */
+function _tatuadores_() {
+  try {
+    return leerConfig_().barberos.map(function (b) { return b.nombre; })
+      .filter(function (n) { return categoriaTrabajador_(n) === CAT_TATUAJES; });
+  } catch (e) { return []; }
+}
+
+/** Una fila del Registro es venta suelta si su nota empieza por "Venta ". */
+function _esVentaSuelta_(nota) {
+  return String(nota || '').trim().indexOf('Venta ') === 0;
+}
+
+/**
+ * Registra una venta de productos sin servicio y la descuenta del Inventario.
+ *
+ * @param {string} token
+ * @param {Object} datos - { productos:{Nombre:{v}}, metodo, cliente, desde, hasta }
+ * @returns {Object} { ok, id, valor, dashboard? } o { ok:false, error }
+ */
+function venderProductosDashboard(token, datos) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  datos = datos || {};
+
+  // Solo productos que existan en el Inventario, con cantidades enteras > 0.
+  var catalogo = {};
+  _productosCatalogo_().forEach(function (p) { catalogo[normalizar_(p.nombre)] = p; });
+  var vendidos = {}, hay = false;
+  var pin = datos.productos || {};
+  Object.keys(pin).forEach(function (n) {
+    var v = Math.floor(Number(pin[n] && pin[n].v) || 0);
+    var p = catalogo[normalizar_(n)];
+    if (v > 0 && p) { vendidos[p.nombre] = { v: v, r: 0 }; hay = true; }
+  });
+  if (!hay) return { ok: false, error: 'Elige al menos un producto.' };
+
+  var metodo = String(datos.metodo || '').trim();
+  if (!metodo) return { ok: false, error: 'Elige el método de pago.' };
+  var cliente = String(datos.cliente || '').trim() || 'Venta mostrador';
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); }
+  catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
+
+  try {
+    var hg = libro_().getSheetByName('Registro');
+    if (!hg) return { ok: false, error: 'No existe la hoja Registro.' };
+    if (hg.getMaxColumns() < 22) hg.insertColumnsAfter(hg.getMaxColumns(), 22 - hg.getMaxColumns());
+    _asegurarColValorProductos_(hg);
+
+    var ahora = new Date();
+    var iso = hoyISO_();
+    var p = iso.split('-');
+    var fecha = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+    var hora = Utilities.formatDate(ahora, TZ, 'HH:mm');
+    var DIAS_L = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    var id = 'V' + Utilities.formatDate(ahora, TZ, 'yyMMdd') + '-' +
+             Math.random().toString(36).slice(2, 7).toUpperCase();
+    var valor = _valorProductos_(vendidos);
+
+    // Primera fila con la col A vacía (igual que volcarAutomatico_): el
+    // Registro puede traer fórmulas más abajo y getLastRow() las cuenta.
+    var ult = hg.getLastRow();
+    var fila = ult + 1;
+    if (ult >= 2) {
+      var colA = hg.getRange(2, 1, ult - 1, 1).getValues();
+      for (var fi = 0; fi < colA.length; fi++) {
+        if (!colA[fi][0] || String(colA[fi][0]).trim() === '') { fila = fi + 2; break; }
+      }
+    } else {
+      fila = 2;
+    }
+    //   1 Fecha · 2 Hora · 3 Barbero · 4 Cliente · 5 Teléfono · 6 Servicio
+    //   7 Valor · 8 Desc · 9 Total · 10 Propina · 11 Método · 12 Estado
+    hg.getRange(fila, 1, 1, 12).setValues([[
+      fecha, hora, VENTA_BARBERO, cliente, '', VENTA_SERVICIO, 0, 0, 0, 0, metodo, 'Atendido'
+    ]]);
+    hg.getRange(fila, 1).setNumberFormat('DD/MM/YYYY');
+    // Comisión 0 (Mostrador no está en Config) · Neto = valor de los productos.
+    _aplicarFormulasComision_(hg, fila);
+    //   16 Notas (llave "Venta <id> · <quién vendió>") · 17 Año · 18 Mes · 19 Día · 20 Hora bloque · 21 Duración
+    hg.getRange(fila, 16, 1, 7).setValues([[
+      'Venta ' + id + ' · ' + s.nombre, fecha.getFullYear(), fecha.getMonth() + 1,
+      DIAS_L[(fecha.getDay() + 6) % 7], parseInt(hora.split(':')[0], 10), 0,
+      _formatearProductos_(vendidos)
+    ]]);
+    hg.getRange(fila, COL_VALOR_PROD).setValue(valor);
+
+    var hi = libro_().getSheetByName('Inventario');
+    if (hi) actualizarInventario_(hi, _deltaProductos_(vendidos, {}));
+
+    var salida = { ok: true, id: id, valor: valor };
+    if (datos.desde && datos.hasta) {
+      SpreadsheetApp.flush();
+      salida.dashboard = datosDashboard_(s.nombre, datos.desde, datos.hasta, s.rol === 'Dueño');
+    }
+    return salida;
+  } catch (err) {
+    return { ok: false, error: 'No se pudo guardar la venta: ' + err.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** Trae al Registro las citas que ya terminaron, sin esperar al disparador. */
 function traerCitasDeHoy(token) {
   try { _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
@@ -861,9 +1058,15 @@ function getFormularioCita(token) {
   var s = _sesion(token);
   var base;
   try { base = getDatosIniciales(); } catch (e) { base = { servicios: [], dias: [] }; }
+  var barberos = (s.rol === 'Dueño') ? _barberosReales_() : [s.nombre];
+  // { nombre: 'Barbería' | 'Tatuajes' } — el formulario muestra, para cada
+  // trabajador, solo los servicios de su categoría.
+  var categorias = {};
+  barberos.forEach(function (n) { categorias[n] = categoriaTrabajador_(n); });
   return {
     servicios: base.servicios || [],
-    barberos:  (s.rol === 'Dueño') ? _barberosReales_() : [s.nombre],
+    barberos:  barberos,
+    categorias: categorias,
     dias:      base.dias || [],
     rol:       s.rol,
     yo:        s.nombre,
@@ -1137,6 +1340,16 @@ function crearCitaDashboard(token, d) {
   var combo = _combinarServicios_(cfg, d.servicios || d.servicio);
   if (!combo.ok) return { ok: false, error: combo.error };
 
+  // Tatuajes: la duración la elige quien agenda (cada tatuaje tarda distinto).
+  // Entre 30 min y 12 h; si no viene, queda la de Config.
+  var durElegida = Math.round(Number(d.duracion) || 0);
+  if (combo.categoria === CAT_TATUAJES && durElegida >= 30 && durElegida <= 720) {
+    combo.duracion = durElegida;
+  }
+  // Tatuajes: el precio lo pone el tatuador según tamaño y dificultad.
+  var precioAcordado = Math.round(Number(d.precio) || 0);
+  if (combo.categoria === CAT_TATUAJES && precioAcordado > 0) combo.precio = precioAcordado;
+
   // Uso interno: nombre y teléfono son opcionales (la reserva web sí los exige).
   var cliente = String(d.cliente || '').trim() || CLIENTE_SIN_NOMBRE;
   var tel = String(d.telefono || '').replace(/\D/g, '');
@@ -1145,6 +1358,11 @@ function crearCitaDashboard(token, d) {
   // Un barbero solo se agenda a sí mismo; el dueño elige.
   var barbero = (s.rol === 'Dueño') ? String(d.barbero || '').trim() : s.nombre;
   var modo = (d.modo === 'agendar') ? 'agendar' : 'ahora';
+
+  // Un barbero no hace tatuajes ni un tatuador cortes.
+  if (barbero && barbero !== '*' && categoriaTrabajador_(barbero) !== combo.categoria) {
+    return { ok: false, error: barbero + ' no atiende ' + combo.categoria.toLowerCase() + '.' };
+  }
 
   var lock = LockService.getScriptLock();
   try { lock.waitLock(20000); }
@@ -1169,7 +1387,7 @@ function crearCitaDashboard(token, d) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !hora) {
         return { ok: false, error: 'Falta el día o la hora.' };
       }
-      var estado = getCupos(barbero || '*', fecha, combo.duracion);
+      var estado = getCupos(barbero || '*', fecha, combo.duracion, combo.categoria);
       var cupo = estado.cupos.filter(function (c) { return c.hora === hora; })[0];
       if (!cupo) return { ok: false, error: 'Ese horario no está libre. Escoge otro.' };
       asignado = (barbero && barbero !== '*' && cupo.barberos.indexOf(barbero) >= 0)
@@ -1309,6 +1527,25 @@ function modificarCitaDashboard(token, id, cambios) {
         }
       }
 
+      // Tatuajes: cada uno dura distinto. Si se pidió una duración nueva
+      // (30 min a 12 h) se usa esa; si no se tocaron los servicios, se conserva
+      // la que ya tenía la cita (mover o editar no la devuelve a la de Config).
+      if (combo.categoria === CAT_TATUAJES) {
+        var durNueva = Math.round(Number(cambios.duracion) || 0);
+        if (durNueva >= 30 && durNueva <= 720) {
+          combo.duracion = durNueva;
+        } else if (!(cambios.servicios && cambios.servicios.length) && Number(f[7]) > 0) {
+          combo.duracion = Number(f[7]);
+        }
+        // Precio: el que acordó el tatuador (si lo cambió) o el que ya tenía.
+        var precioNuevo = Math.round(Number(cambios.precio) || 0);
+        if (precioNuevo > 0) {
+          combo.precio = precioNuevo;
+        } else if (!(cambios.servicios && cambios.servicios.length) && Number(f[8]) > 0) {
+          combo.precio = Number(f[8]);
+        }
+      }
+
       var fecha   = cambios.fecha ? String(cambios.fecha).slice(0, 10) : aISO_(f[2]);
       var hora    = cambios.hora ? aHHMM_(cambios.hora) : aHHMM_(f[3]);
       var barbero = cambios.barbero ? String(cambios.barbero).trim() : barberoViejo;
@@ -1322,6 +1559,14 @@ function modificarCitaDashboard(token, id, cambios) {
         return { ok: false, error: 'Día u hora no válidos.' };
       }
       if (!cliente) cliente = CLIENTE_SIN_NOMBRE;
+
+      // Si cambió el trabajador o los servicios, que sigan siendo del mismo
+      // tipo (barbería ↔ barbero, tatuajes ↔ tatuador). combo.categoria falta
+      // solo cuando el servicio viejo ya no está en Config: ahí no se revisa.
+      if ((cambios.barbero || (cambios.servicios && cambios.servicios.length)) &&
+          combo.categoria && categoriaTrabajador_(barbero) !== combo.categoria) {
+        return { ok: false, error: barbero + ' no atiende ' + combo.categoria.toLowerCase() + '.' };
+      }
 
       if (cambios.mover) {
         var chk = _validarFranja_(barbero, fecha, hora, combo.duracion || PASO_MIN, id);
@@ -1474,7 +1719,7 @@ function notificarCitaDashboard(token, id) {
     hora: c.hora, fin: c.fin, duracion: c.duracion, precio: c.precio,
     nombre: c.cliente, telefono: c.telefono, notas: c.notas
   });
-  if (!link) return { ok: false, error: 'Ese barbero no tiene WhatsApp cargado en la hoja Barberos.' };
+  if (!link) return { ok: false, error: c.barbero + ' no tiene WhatsApp cargado en la hoja Barberos.' };
   return { ok: true, link: link };
 }
 

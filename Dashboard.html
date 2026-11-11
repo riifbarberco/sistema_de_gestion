@@ -223,6 +223,8 @@
   }
   /* 5º KPI (solo dueño): en el celular ocupa toda la fila */
   .kpi-grid.cinco .kpi.barberia { grid-column: 1 / -1; }
+  .kpi-grid.seis .kpi.barberia { grid-column: auto; }
+  @media (min-width: 480px) { .kpi-grid.seis { grid-template-columns: repeat(3, 1fr); } }
   @media (min-width: 480px) {
     .kpi-grid.cinco .kpi.barberia { grid-column: auto; }
   }
@@ -340,6 +342,24 @@
     letter-spacing: 1px;
     color: var(--text-muted);
   }
+
+  /* Pago por trabajador (Resumen, solo dueño) */
+  .eq-cat {
+    display: flex; justify-content: space-between; gap: 10px;
+    padding: 10px 16px; background: var(--surface2);
+    font-size: 12px; font-weight: 700; color: var(--gold);
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .eq-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+  }
+  .eq-row:last-child { border-bottom: none; }
+  .eq-nom { font-weight: 600; }
+  .eq-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .eq-pago { text-align: right; white-space: nowrap; }
+  .eq-pago b { color: var(--green); font-size: 16px; }
+  .eq-pago small { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
   /* Gráfico de barras */
   .chart-wrap { padding: 16px; }
@@ -600,6 +620,16 @@
     padding: 10px 12px; cursor: pointer; font-size: 13px;
   }
   .serv-item.on { border-color: var(--gold); background: rgba(201,168,76,0.12); }
+  /* Pestañas Barbería / Tatuajes encima de la lista de servicios */
+  .serv-tabs {
+    display: flex; gap: 6px; position: sticky; top: 0; z-index: 1;
+    background: var(--surface); padding-bottom: 4px;
+  }
+  .serv-tabs button {
+    flex: 1; padding: 8px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 13px;
+    background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  }
+  .serv-tabs button.on { background: var(--gold); border-color: var(--gold); color: #000; font-weight: 700; }
   .serv-item .chk {
     width: 16px; height: 16px; border: 1px solid var(--border); border-radius: 4px;
     flex-shrink: 0; display: flex; align-items: center; justify-content: center;
@@ -837,6 +867,7 @@
 </head>
 <body>
 
+
 <!-- PANTALLA DE LOGIN -->
 <div id="login-screen">
   <div class="login-box">
@@ -915,7 +946,10 @@
 
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:16px;">
       <div class="periodo-label" id="periodo-label" style="margin:0;"></div>
-      <button class="btn-refrescar" id="btn-refrescar" onclick="refrescar()">↻ Actualizar</button>
+      <span style="display:flex;gap:8px;">
+        <button class="btn-refrescar" onclick="abrirVenta()">🛒 Vender</button>
+        <button class="btn-refrescar" id="btn-refrescar" onclick="refrescar()">↻ Actualizar</button>
+      </span>
     </div>
 
     <!-- KPIs -->
@@ -927,6 +961,11 @@
       <div class="kpi green">
         <div class="num" id="k-comision">—</div>
         <div class="lbl">Tu pago</div>
+      </div>
+      <!-- Solo dueño, cuando hay tatuador: su pago aparte del de los barberos -->
+      <div class="kpi green" id="kpi-tatuador" style="display:none;">
+        <div class="num" id="k-tatuador">—</div>
+        <div class="lbl">Pago tatuador</div>
       </div>
       <div class="kpi">
         <div class="num" id="k-propinas">—</div>
@@ -940,6 +979,12 @@
         <div class="num" id="k-barberia">—</div>
         <div class="lbl">Pago barbería</div>
       </div>
+    </div>
+
+    <!-- Pago por trabajador (solo dueño): barberos y tatuadores por separado -->
+    <div class="section" id="sec-equipo" hidden>
+      <div class="section-title">Pago por trabajador</div>
+      <div id="equipo-area"></div>
     </div>
 
     <!-- Gráfico por día -->
@@ -966,7 +1011,8 @@
 
     <!-- ══════ PESTAÑA CITAS ══════ -->
     <section id="tab-citas" hidden>
-      <button class="btn-primary" onclick="abrirNuevaCita()" style="margin-bottom:16px;">＋ Nueva cita</button>
+      <button class="btn-primary" onclick="abrirNuevaCita()" style="margin-bottom:10px;">＋ Nueva cita</button>
+      <button class="btn-sec" onclick="abrirVenta()" style="margin-bottom:16px;">🛒 Vender productos</button>
       <div id="agenda-area"><div class="spinner"></div></div>
     </section>
 
@@ -985,6 +1031,7 @@
         </div>
         <button class="btn-primary" style="margin-left:auto;padding:8px 16px;" onclick="abrirNuevaCita()">＋</button>
       </div>
+      <button class="btn-sec" onclick="abrirVenta()" style="margin-bottom:10px;">🛒 Vender productos</button>
       <div id="cal-area"><div class="spinner"></div></div>
       <div id="cal-tiempo" style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:6px;"></div>
     </section>
@@ -1039,6 +1086,24 @@
       <div class="serv-resumen" id="mc-serv-resumen"></div>
     </div>
 
+    <!-- Solo tatuajes: el precio es "desde" y el real se acuerda según tamaño y complejidad -->
+    <div class="campo" id="mc-campo-valor" hidden>
+      <label>Valor final del tatuaje $</label>
+      <input id="mc-valor" type="number" min="0" step="10000" placeholder="150000">
+    </div>
+
+    <!-- Solo tatuajes: cuánto tardó de verdad (para medir cobro por hora) -->
+    <div class="campo campo-mitad" id="mc-campo-dur" hidden>
+      <div>
+        <label>Tiempo real · horas</label>
+        <select id="mc-dur-h"></select>
+      </div>
+      <div>
+        <label>Minutos</label>
+        <select id="mc-dur-m"></select>
+      </div>
+    </div>
+
     <div class="campo">
       <label>Método de pago</label>
       <select id="mc-metodo"></select>
@@ -1065,6 +1130,33 @@
   </div>
 </div>
 
+<!-- HOJA MODAL: vender productos sin servicio -->
+<div class="modal-fondo" id="modal-venta" onclick="if(event.target===this)cerrarVenta()">
+  <div class="modal-hoja">
+    <div class="modal-agarre"></div>
+    <h3>Vender productos</h3>
+    <div class="modal-sub">Sin servicio · se descuenta del inventario</div>
+
+    <div class="modal-error" id="mv-error"></div>
+
+    <div class="campo" id="mv-productos"></div>
+    <div class="serv-resumen" id="mv-total">Ningún producto elegido.</div>
+
+    <div class="campo">
+      <label>Método de pago</label>
+      <select id="mv-metodo"></select>
+    </div>
+
+    <div class="campo">
+      <label>Cliente <span style="text-transform:none;letter-spacing:0;">(opcional)</span></label>
+      <input id="mv-cliente" type="text" placeholder="Venta mostrador">
+    </div>
+
+    <button class="btn-primary" id="mv-guardar" onclick="guardarVenta()">Registrar venta</button>
+    <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarVenta()">Cancelar</button>
+  </div>
+</div>
+
 <!-- HOJA MODAL: nueva cita -->
 <div class="modal-fondo" id="modal-nueva" onclick="if(event.target===this)cerrarNueva()">
   <div class="modal-hoja">
@@ -1080,8 +1172,20 @@
       <div class="serv-resumen" id="nc-servicios-resumen"></div>
     </div>
 
+    <!-- Solo tatuajes: cuánto se reserva en la agenda (por defecto lo de Config) -->
+    <div class="campo campo-mitad" id="nc-campo-dur" hidden>
+      <div>
+        <label>Duración estimada</label>
+        <select id="nc-dur"></select>
+      </div>
+      <div>
+        <label>Precio acordado $</label>
+        <input id="nc-precio" type="number" min="0" step="10000">
+      </div>
+    </div>
+
     <div class="campo" id="nc-campo-barbero">
-      <label>Barbero</label>
+      <label>Atiende</label>
       <select id="nc-barbero"></select>
     </div>
 
@@ -1182,11 +1286,22 @@
 
     <div class="campo"><label>Día</label><input id="ed-fecha" type="date"></div>
     <div class="campo"><label>Hora</label><input id="ed-hora" type="time" step="300"></div>
-    <div class="campo"><label>Barbero</label><select id="ed-barbero"></select></div>
+    <div class="campo"><label>Atiende</label><select id="ed-barbero"></select></div>
     <div class="campo">
       <label>Servicios</label>
       <div class="serv-list" id="ed-servicios"></div>
       <div class="serv-resumen" id="ed-servicios-resumen"></div>
+    </div>
+    <!-- Solo tatuajes: ajustar cuánto se cree que va a tardar -->
+    <div class="campo campo-mitad" id="ed-campo-dur" hidden>
+      <div>
+        <label>Duración estimada</label>
+        <select id="ed-dur"></select>
+      </div>
+      <div>
+        <label>Precio acordado $</label>
+        <input id="ed-precio" type="number" min="0" step="10000">
+      </div>
     </div>
     <div class="campo"><label>Cliente</label><input id="ed-cliente" type="text" autocomplete="off"></div>
     <div class="campo"><label>Teléfono</label><input id="ed-telefono" type="tel" inputmode="numeric"></div>
@@ -1194,7 +1309,7 @@
 
     <button class="btn-primary" id="ed-guardar" onclick="guardarEdicion()">Guardar cambios</button>
     <button class="btn-sec" onclick="cerrarDesdeEdicion()">💰 Cerrar / cobrar este servicio</button>
-    <button class="btn-sec" onclick="avisarBarberoCita()">Avisar al barbero por WhatsApp</button>
+    <button class="btn-sec" id="ed-avisar" onclick="avisarBarberoCita()">Avisar al barbero por WhatsApp</button>
     <button class="btn-sec" onclick="marcarNoShow()">🚫 No vino (no show)</button>
     <button class="btn-peligro" onclick="cancelarCitaActual()">Cancelar (el cliente avisó)</button>
     <button class="btn-peligro solo-dueno" style="margin-top:10px;" onclick="eliminarCita(editId)">🗑 Borrar definitivamente</button>
@@ -1877,7 +1992,20 @@ function renderDashboard(d) {
   document.getElementById('k-comision').textContent  = pesos(d.totalComision || 0);
   document.getElementById('k-propinas').textContent  = pesos(d.totalPropinas || 0);
   document.getElementById('k-total').textContent     = pesos(d.totalCobrado || 0);
+  // Dueño: pago de barberos y de tatuadores por separado (cada uno con su tarjeta).
+  // Un empleado solo ve "Tu pago".
+  var pt = d.porTrabajador || [];
+  var tieneTat = esDueno && pt.some(function(t) { return t.categoria === CAT_TATUAJES; });
+  var hayTatuador = esDueno && (tieneTat || (d.tatuadores || []).length > 0);
+  function pagoDe(cat) {
+    return pt.filter(function(t) { return t.categoria === cat; })
+             .reduce(function(a, t) { return a + t.pago; }, 0);
+  }
   document.querySelector('.kpi.green .lbl').textContent = esDueno ? 'Pago barberos' : 'Tu pago';
+  if (hayTatuador) document.getElementById('k-comision').textContent = pesos(pagoDe(CAT_BARBERIA));
+  document.getElementById('k-tatuador').textContent = pesos(pagoDe(CAT_TATUAJES));
+  document.getElementById('kpi-tatuador').style.display = hayTatuador ? '' : 'none';
+  document.querySelector('.kpi-grid').classList.toggle('seis', hayTatuador);
   // Pago barbería = servicios − comisiones + bebidas vendidas. El barbero ve
   // el de sus propios servicios: es lo que le debe entregar a la barbería.
   document.getElementById('k-barberia').textContent  = pesos(d.totalBarberia || 0);
@@ -1889,6 +2017,9 @@ function renderDashboard(d) {
                filtroActual === 'semana' ? 'Servicios por día de la semana' :
                filtroActual === 'anio' ? 'Servicios por mes' : 'Servicios por día';
   document.getElementById('chart-title').textContent = titulo;
+
+  // Pago por trabajador (solo el dueño ve a todos)
+  renderEquipo(d.porTrabajador || [], d.totalVentas || 0, esDueno);
 
   // Gráfico
   renderChart(d.porPeriodo || []);
@@ -1906,6 +2037,59 @@ function pesos(n) {
   if (n >= 1000000) return '$' + (n / 1000000).toFixed(1).replace('.0', '') + 'M';
   if (n >= 1000) return '$' + Math.round(n / 1000) + 'k';
   return '$' + n;
+}
+
+/**
+ * Sección "Pago por trabajador": barberos y tatuadores en bloques separados,
+ * cada uno con lo que cobró, lo que se le paga y lo que queda para la barbería.
+ * Solo cuenta servicios atendidos del período elegido.
+ */
+function renderEquipo(lista, ventas, esDueno) {
+  var sec = document.getElementById('sec-equipo');
+  sec.hidden = !esDueno;
+  if (!esDueno) return;
+  if (!lista.length && !ventas) {
+    document.getElementById('equipo-area').innerHTML =
+      '<div class="no-data">Todavía no hay servicios atendidos en este período.</div>';
+    return;
+  }
+  function dinero(n) { return pesosExacto(Math.round(n || 0)); }
+
+  var TITULOS = {};
+  TITULOS[CAT_BARBERIA] = 'Barberos';
+  TITULOS[CAT_TATUAJES] = 'Tatuadores';
+
+  var html = '';
+  [CAT_BARBERIA, CAT_TATUAJES].forEach(function(cat) {
+    var grupo = lista.filter(function(t) { return (t.categoria || CAT_BARBERIA) === cat; });
+    if (!grupo.length) return;
+    var pagoCat = grupo.reduce(function(a, t) { return a + t.pago; }, 0);
+    var cobradoCat = grupo.reduce(function(a, t) { return a + t.cobrado; }, 0);
+    html += '<div class="eq-cat"><span>' + TITULOS[cat] + '</span>' +
+            '<span>Cobrado ' + dinero(cobradoCat) + ' · Pago ' + dinero(pagoCat) + '</span></div>';
+    grupo.forEach(function(t) {
+      html += '<div class="eq-row">' +
+        '<div><div class="eq-nom">' + esc(t.nombre) + '</div>' +
+          '<div class="eq-sub">' + t.servicios + (t.servicios === 1 ? ' servicio' : ' servicios') +
+          ' · cobrado ' + dinero(t.cobrado) + '</div>' +
+          (t.minutos > 0
+            ? '<div class="eq-sub">' + duracionCorta(t.minutos) + ' trabajadas · ' +
+              dinero(t.servicioCobrado / (t.minutos / 60)) + ' por hora</div>'
+            : '') +
+        '</div>' +
+        '<div class="eq-pago"><b>' + dinero(t.pago) + '</b>' +
+          '<small>queda barbería ' + dinero(t.barberia) + '</small></div>' +
+      '</div>';
+    });
+  });
+  // Productos vendidos sin servicio: 100% para la barbería, no se le pagan a nadie.
+  if (ventas) {
+    html += '<div class="eq-cat"><span>Ventas de productos</span><span>Cobrado ' + dinero(ventas) + '</span></div>' +
+      '<div class="eq-row"><div><div class="eq-nom">Sin servicio (mostrador)</div>' +
+        '<div class="eq-sub">bebidas y productos vendidos solos</div></div>' +
+      '<div class="eq-pago"><b>' + dinero(0) + '</b><small>queda barbería ' + dinero(ventas) + '</small></div></div>';
+  }
+  document.getElementById('equipo-area').innerHTML = html;
 }
 
 function renderChart(datos) {
@@ -1968,7 +2152,7 @@ function renderLista() {
     html += '<div class="servicio-row' + tocable + '"' +
              (s.id ? ' onclick="abrirCierre(' + i + ')"' : '') + '>' +
       '<div class="srv-left">' +
-        '<div class="srv-fecha">' + fmtFecha(s.fecha) + ' · ' + esc(s.hora) + ' <span class="badge ' + badgeClass + '">' + esc(s.estado) + '</span></div>' +
+        '<div class="srv-fecha">' + fmtFecha(s.fecha) + ' · ' + esc(s.hora) + ' <span class="badge ' + badgeClass + '">' + esc(s.venta ? 'Venta' : s.estado) + '</span></div>' +
         '<div class="srv-nombre">' + esc(s.cliente) + '</div>' +
         '<div class="srv-servicio">' + lineaSrv + '</div>' +
         (bebidas ? '<div class="srv-bebidas">🥤 ' + bebidas +
@@ -2031,18 +2215,113 @@ function duracionCorta(m) {
  * "Editar cita". `seleccion` es un array que se muta en el sitio (push/splice)
  * para que el llamador conserve la misma referencia.
  */
+// Categorías de servicio: deben coincidir con CAT_BARBERIA / CAT_TATUAJES de Codigo.gs.
+var CAT_BARBERIA = 'Barbería', CAT_TATUAJES = 'Tatuajes';
+var servTab = {};   // { contenedorId: categoría a la vista } para las pestañas de cada lista
+
+/** Llena un <select> con opciones de duración (minutos) cada `paso`, de `desde` a `hasta`. */
+function llenarDuraciones(sel, desde, hasta, paso, elegido) {
+  sel.innerHTML = '';
+  for (var m = desde; m <= hasta; m += paso) {
+    var o = document.createElement('option');
+    o.value = m; o.textContent = duracionCorta(m);
+    if (m === elegido) o.selected = true;
+    sel.appendChild(o);
+  }
+  if (elegido && !sel.value) {   // duración que no cae en la grilla: se agrega tal cual
+    var x = document.createElement('option');
+    x.value = elegido; x.textContent = duracionCorta(elegido); x.selected = true;
+    sel.appendChild(x);
+  }
+}
+
+/** Nueva cita: muestra "Duración estimada" solo si lo elegido es tatuaje. */
+function ncActualizarDur() {
+  var campo = document.getElementById('nc-campo-dur');
+  var esTat = ncServiciosSel.length && catDe(ncServiciosSel[0]) === CAT_TATUAJES;
+  campo.hidden = !esTat;
+  if (!esTat) return;
+  var base = ncServiciosSel.reduce(function(a, s) { return a + s.duracion; }, 0);
+  llenarDuraciones(document.getElementById('nc-dur'), 30, 720, 30, base);
+  // Precio: arranca en el "desde" de Config; el tatuador lo ajusta.
+  document.getElementById('nc-precio').value =
+    ncServiciosSel.reduce(function(a, s) { return a + s.precio; }, 0) || '';
+}
+
+/** Precio "desde" (suma de Config) de una selección de servicios. */
+function precioDesde(sel) {
+  return sel.reduce(function(a, s) { return a + (s.precio || 0); }, 0);
+}
+
+/** Si el precio acordado queda por debajo del "desde", se pregunta antes de guardar. */
+function confirmarPrecioTatuaje(precio, desde) {
+  if (!precio || !desde || precio >= desde) return true;
+  return confirm('El precio acordado (' + pesosExacto(precio) + ') es menor que el precio desde (' +
+                 pesosExacto(desde) + ').\n\n¿Guardar de todos modos?');
+}
+
+function catDe(s) { return (s && s.categoria) || CAT_BARBERIA; }
+
+/** Categoría que atiende un trabajador (formCita.categorias viene de getFormularioCita). */
+function catTrabajador(nombre) {
+  return (formCita && formCita.categorias && formCita.categorias[nombre]) || CAT_BARBERIA;
+}
+
+/** Catálogo de servicios que puede hacer `nombre`; sin nombre, el catálogo completo. */
+function catalogoPara(catalogo, nombre) {
+  if (!nombre) return catalogo;
+  var cat = catTrabajador(nombre);
+  return catalogo.filter(function(s) { return catDe(s) === cat; });
+}
+
+/**
+ * Pone la lista de servicios en la pestaña de la categoría `cat`. Si lo que
+ * estaba marcado era de otra categoría, se desmarca (no se mezclan en una cita).
+ */
+function servPonerCategoria(contenedorId, cat, seleccion) {
+  servTab[contenedorId] = cat;
+  if (seleccion.some(function(x) { return catDe(x) !== cat; })) seleccion.splice(0, seleccion.length);
+}
+
 function renderServiciosCheck(contenedorId, catalogo, seleccion, alCambiar) {
   var box = document.getElementById(contenedorId);
   if (!box) return;
   box.innerHTML = '';
-  catalogo.forEach(function(s) {
+
+  // Pestañas Barbería / Tatuajes, solo si el catálogo trae las dos.
+  var hayTat = catalogo.some(function(s) { return catDe(s) === CAT_TATUAJES; });
+  var hayBar = catalogo.some(function(s) { return catDe(s) === CAT_BARBERIA; });
+  var lista = catalogo;
+  if (hayTat && hayBar) {
+    var tab = servTab[contenedorId] || (seleccion.length ? catDe(seleccion[0]) : CAT_BARBERIA);
+    servTab[contenedorId] = tab;
+    var tabs = document.createElement('div');
+    tabs.className = 'serv-tabs';
+    [CAT_BARBERIA, CAT_TATUAJES].forEach(function(cat) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = (cat === tab) ? 'on' : '';
+      b.textContent = cat;
+      b.onclick = function() {
+        if (cat === servTab[contenedorId]) return;
+        servPonerCategoria(contenedorId, cat, seleccion);
+        renderServiciosCheck(contenedorId, catalogo, seleccion, alCambiar);
+        if (alCambiar) alCambiar();
+      };
+      tabs.appendChild(b);
+    });
+    box.appendChild(tabs);
+    lista = catalogo.filter(function(s) { return catDe(s) === tab; });
+  }
+
+  lista.forEach(function(s) {
     var on = seleccion.some(function(x) { return x.nombre === s.nombre; });
     var row = document.createElement('div');
     row.className = 'serv-item' + (on ? ' on' : '');
     row.innerHTML =
       '<span class="chk">' + (on ? '✓' : '') + '</span>' +
       '<span class="serv-nom">' + esc(s.nombre) + ' <span class="serv-dur">' + duracionCorta(s.duracion) + '</span></span>' +
-      '<b>' + pesosExacto(s.precio) + '</b>';
+      '<b>' + (catDe(s) === CAT_TATUAJES ? 'Desde ' : '') + pesosExacto(s.precio) + '</b>';
     row.onclick = function() {
       var idx = seleccion.map(function(x) { return x.nombre; }).indexOf(s.nombre);
       if (idx >= 0) seleccion.splice(idx, 1); else seleccion.push(s);
@@ -2061,8 +2340,9 @@ function resumenServicios(resumenId, seleccion) {
   if (!n) { box.innerHTML = 'Ningún servicio elegido.'; return; }
   var dur = seleccion.reduce(function(a, s) { return a + s.duracion; }, 0);
   var precio = seleccion.reduce(function(a, s) { return a + s.precio; }, 0);
+  var desde = seleccion.some(function(s) { return catDe(s) === CAT_TATUAJES; }) ? 'desde ' : '';
   box.innerHTML = n + (n === 1 ? ' servicio' : ' servicios') + ' · ' +
-                   duracionCorta(dur) + ' · <b>' + pesosExacto(precio) + '</b>';
+                   duracionCorta(dur) + ' · <b>' + desde + pesosExacto(precio) + '</b>';
 }
 
 /** Muestra un error en un recuadro .modal-error y lo trae a la vista. */
@@ -2138,6 +2418,7 @@ function abrirCierrePorId(id) {
       if (!c || c.error) { alert((c && c.error) || 'No encontramos la cita.'); return; }
       pintarCierre({
         id: c.id, servicio: c.servicio, cliente: c.cliente,
+        barbero: c.barbero, precio: c.precio, duracion: c.duracion,
         fecha: c.fecha, hora: c.hora,
         estado: c.estadoRegistro || 'Pendiente',
         metodo: c.metodoRegistro || '', propina: c.propinaRegistro || 0,
@@ -2180,19 +2461,45 @@ function pintarCierre(s) {
   // Servicios: se parte el combo guardado y se cruza con el catálogo de Config.
   // Los nombres que ya no existen en Config no se pueden marcar, pero mientras
   // el barbero no toque nada no se manda nada al backend y se conservan tal cual.
-  var catServ = opcionesCierre.servicios || [];
+  var catTodo = opcionesCierre.servicios || [];
   cierreServicios = String(s.servicio || '').split(SEPARADOR_COMBO)
     .map(function(n) { return n.trim(); })
     .filter(Boolean)
     .map(function(n) {
-      return catServ.filter(function(x) { return x.nombre === n; })[0];
+      return catTodo.filter(function(x) { return x.nombre === n; })[0];
     })
     .filter(Boolean);
   cierreServiciosIni = firmaServicios(cierreServicios);
+
+  // Al cerrar solo se corrige dentro de la misma categoría (barbería o tatuajes).
+  var catCierre = cierreServicios.length ? catDe(cierreServicios[0])
+                : (s.barbero ? catTrabajador(s.barbero) : CAT_BARBERIA);
+  var catServ = catTodo.filter(function(x) { return catDe(x) === catCierre; });
   renderServiciosCheck('mc-servicios', catServ, cierreServicios, function() {
     resumenServicios('mc-serv-resumen', cierreServicios);
   });
   resumenServicios('mc-serv-resumen', cierreServicios);
+
+  // Tatuaje: valor final acordado (arranca en lo que ya tenga la cita).
+  var esTat = (catCierre === CAT_TATUAJES);
+  document.getElementById('mc-campo-valor').hidden = !esTat;
+  document.getElementById('mc-valor').value = esTat ? (s.valor || s.precio || '') : '';
+  document.getElementById('mc-campo-dur').hidden = !esTat;
+  if (esTat) {
+    var durIni = Number(s.duracion) || cierreServicios.reduce(function(a, x) { return a + x.duracion; }, 0) || 120;
+    var selH = document.getElementById('mc-dur-h'), selM = document.getElementById('mc-dur-m');
+    selH.innerHTML = ''; selM.innerHTML = '';
+    for (var h = 0; h <= 12; h++) {
+      var oh = document.createElement('option'); oh.value = h; oh.textContent = h + ' h';
+      selH.appendChild(oh);
+    }
+    for (var mm = 0; mm < 60; mm += 5) {
+      var om = document.createElement('option'); om.value = mm; om.textContent = mm + ' min';
+      selM.appendChild(om);
+    }
+    selH.value = String(Math.min(12, Math.floor(durIni / 60)));
+    selM.value = String(Math.round((durIni % 60) / 5) * 5 % 60);
+  }
 
   // Método de pago
   var selM = document.getElementById('mc-metodo');
@@ -2251,6 +2558,127 @@ function paso(btn, d) {
   b.textContent = n;
 }
 
+// ─────────────────────────────────────────────
+//  HOJA MODAL — VENDER PRODUCTOS SIN SERVICIO
+// ─────────────────────────────────────────────
+var ventaCant = {};   // { nombreProducto: cantidad } del modal de venta
+
+function abrirVenta() {
+  if (!opcionesCierre) {
+    google.script.run
+      .withSuccessHandler(function(o) { opcionesCierre = o || OPCIONES_DEFAULT; abrirVenta(); })
+      .withFailureHandler(function() { opcionesCierre = OPCIONES_DEFAULT; abrirVenta(); })
+      .getOpcionesCierre();
+    return;
+  }
+  ventaCant = {};
+  limpiarError('mv-error');
+  document.getElementById('mv-cliente').value = '';
+
+  var box = document.getElementById('mv-productos');
+  var lista = opcionesCierre.productos || [];
+  box.innerHTML = '<label>Productos</label>';
+  if (!lista.length) {
+    box.innerHTML += '<div style="font-size:12px;color:var(--text-muted);">' +
+      'Sin productos. Agrégalos en la hoja Inventario.</div>';
+  }
+  lista.forEach(function(p, i) {
+    var row = document.createElement('div');
+    row.className = 'prod-row';
+    var stock = (p.stock != null) ? ' · quedan ' + p.stock : '';
+    row.innerHTML =
+      '<div class="prod-nombre">' + esc(p.nombre) + ' <small>' + pesosExacto(p.precio) + stock + '</small></div>' +
+      '<div class="stepper"><span>Cant.</span>' +
+        '<button type="button" onclick="ventaPaso(' + i + ',-1)">−</button>' +
+        '<b id="mv-cant-' + i + '">0</b>' +
+        '<button type="button" onclick="ventaPaso(' + i + ',1)">+</button>' +
+      '</div>';
+    box.appendChild(row);
+  });
+
+  var selM = document.getElementById('mv-metodo');
+  selM.innerHTML = '<option value="">— Elige —</option>';
+  (opcionesCierre.metodos || []).forEach(function(m) {
+    var o = document.createElement('option');
+    o.value = m; o.textContent = m;
+    selM.appendChild(o);
+  });
+
+  ventaResumen();
+  document.getElementById('modal-venta').classList.add('abierto');
+}
+
+function ventaPaso(i, d) {
+  var p = (opcionesCierre.productos || [])[i];
+  if (!p) return;
+  var n = Math.max(0, (ventaCant[p.nombre] || 0) + d);
+  ventaCant[p.nombre] = n;
+  document.getElementById('mv-cant-' + i).textContent = n;
+  ventaResumen();
+}
+
+/** Línea de total del modal de venta. */
+function ventaResumen() {
+  var n = 0, total = 0;
+  (opcionesCierre.productos || []).forEach(function(p) {
+    var c = ventaCant[p.nombre] || 0;
+    n += c; total += c * (p.precio || 0);
+  });
+  document.getElementById('mv-total').innerHTML = n
+    ? n + (n === 1 ? ' producto' : ' productos') + ' · <b>' + pesosExacto(total) + '</b>'
+    : 'Ningún producto elegido.';
+}
+
+function cerrarVenta() {
+  document.getElementById('modal-venta').classList.remove('abierto');
+}
+
+function guardarVenta() {
+  var btn = document.getElementById('mv-guardar');
+  var errBox = document.getElementById('mv-error');
+  limpiarError(errBox);
+
+  var productos = {}, hay = false, sinStock = [];
+  (opcionesCierre.productos || []).forEach(function(p) {
+    var c = ventaCant[p.nombre] || 0;
+    if (c <= 0) return;
+    productos[p.nombre] = { v: c, r: 0 };
+    hay = true;
+    if (p.stock != null && c > p.stock) sinStock.push(p.nombre + ' (quedan ' + p.stock + ')');
+  });
+  if (!hay) { mostrarError(errBox, 'Elige al menos un producto.'); return; }
+  var metodo = document.getElementById('mv-metodo').value;
+  if (!metodo) { mostrarError(errBox, 'Elige el método de pago.'); return; }
+  if (sinStock.length &&
+      !confirm('Según el inventario no alcanza:\n' + sinStock.join('\n') + '\n\n¿Registrar la venta de todos modos?')) return;
+
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false; btn.textContent = 'Registrar venta';
+      if (!r || !r.ok) {
+        var msg = (r && r.error) || 'No se pudo guardar.';
+        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
+        mostrarError(errBox, msg);
+        return;
+      }
+      cerrarVenta();
+      opcionesCierre = null;   // el stock cambió: se vuelve a pedir la próxima vez
+      alert('Venta registrada: ' + pesosExacto(r.valor || 0));
+      if (r.dashboard) renderDashboard(r.dashboard);
+      else if (typeof refrescar === 'function') refrescar();
+    })
+    .withFailureHandler(function() {
+      btn.disabled = false; btn.textContent = 'Registrar venta';
+      mostrarError(errBox, 'No se pudo guardar. Revisa tu conexión.');
+    })
+    .venderProductosDashboard(tokenActual, {
+      productos: productos, metodo: metodo,
+      cliente: document.getElementById('mv-cliente').value.trim(),
+      desde: desdeActual, hasta: hastaActual
+    });
+}
+
 function cerrarModal() {
   document.getElementById('modal-cierre').classList.remove('abierto');
   cierreIdx = -1;
@@ -2288,6 +2716,22 @@ function guardarCierre() {
       return;
     }
     datos.servicios = cierreServicios.map(function(x) { return x.nombre; });
+  }
+
+  // Tatuaje: valor final acordado. Vacío = se deja el que ya tenía.
+  if (!document.getElementById('mc-campo-valor').hidden) {
+    var valorFinal = parseInt(document.getElementById('mc-valor').value, 10) || 0;
+    if (valorFinal < 0) { mostrarError(errBox, 'El valor final no puede ser negativo.'); return; }
+    if (valorFinal > 0) datos.valorFinal = valorFinal;
+  }
+  if (!document.getElementById('mc-campo-dur').hidden) {
+    var durReal = (parseInt(document.getElementById('mc-dur-h').value, 10) || 0) * 60 +
+                  (parseInt(document.getElementById('mc-dur-m').value, 10) || 0);
+    if (cierreEstado === 'Atendido' && durReal <= 0) {
+      mostrarError(errBox, 'Marca cuánto tardó el tatuaje.');
+      return;
+    }
+    if (durReal > 0) datos.duracionReal = durReal;
   }
 
   btn.disabled = true; btn.textContent = 'Guardando…';
@@ -3199,19 +3643,38 @@ function abrirNuevaCita(prefill) {
     return;
   }
 
-  ncServiciosSel = [];
-  renderServiciosCheck('nc-servicios', formCita.servicios, ncServiciosSel, function() {
-    resumenServicios('nc-servicios-resumen', ncServiciosSel);
-  });
-  resumenServicios('nc-servicios-resumen', ncServiciosSel);
-
   var esDueno = (rolActual === 'Dueño' || formCita.rol === 'Dueño');
+
+  // El dueño ve todos los servicios (con pestañas Barbería / Tatuajes); un
+  // barbero o tatuador solo ve los de su categoría.
+  ncServiciosSel = [];
+  delete servTab['nc-servicios'];
+  var catalogoNc = esDueno ? formCita.servicios : catalogoPara(formCita.servicios, formCita.barberos[0]);
+  if (esDueno && prefill && prefill.barbero) {
+    servPonerCategoria('nc-servicios', catTrabajador(prefill.barbero), ncServiciosSel);
+  }
+  function pintarNc() {
+    renderServiciosCheck('nc-servicios', catalogoNc, ncServiciosSel, function() {
+      resumenServicios('nc-servicios-resumen', ncServiciosSel);
+      ncActualizarDur();
+    });
+    resumenServicios('nc-servicios-resumen', ncServiciosSel);
+    ncActualizarDur();
+  }
+  pintarNc();
+
   var campoB = document.getElementById('nc-campo-barbero');
   var selB = document.getElementById('nc-barbero');
   selB.innerHTML = '';
+  // Al elegir quién atiende, la lista salta a su pestaña (barbería o tatuajes).
+  selB.onchange = function() {
+    if (!selB.value) return;
+    servPonerCategoria('nc-servicios', catTrabajador(selB.value), ncServiciosSel);
+    pintarNc();
+  };
   if (esDueno) {
     var o0 = document.createElement('option');
-    o0.value = ''; o0.textContent = '— Elige el barbero —';
+    o0.value = ''; o0.textContent = '— Elige quién atiende —';
     selB.appendChild(o0);
   }
   formCita.barberos.forEach(function(b) {
@@ -3257,7 +3720,11 @@ function guardarNuevaCita(forzar) {
   var barbero = campoB.hidden ? (formCita.barberos[0] || '') : document.getElementById('nc-barbero').value;
 
   if (!ncServiciosSel.length) { mostrarError(errBox, 'Elige al menos un servicio.'); return; }
-  if (!campoB.hidden && !barbero) { mostrarError(errBox, 'Elige el barbero.'); return; }
+  if (!campoB.hidden && !barbero) { mostrarError(errBox, 'Elige quién atiende.'); return; }
+  if (barbero && catTrabajador(barbero) !== catDe(ncServiciosSel[0])) {
+    mostrarError(errBox, barbero + ' no atiende ' + catDe(ncServiciosSel[0]).toLowerCase() + '. Cambia los servicios o quién atiende.');
+    return;
+  }
   var fecha = document.getElementById('nc-fecha').value;
   var hora = document.getElementById('nc-hora').value;
   if (!fecha) { mostrarError(errBox, 'Elige el día.'); return; }
@@ -3278,6 +3745,11 @@ function guardarNuevaCita(forzar) {
     forzar: !!forzar,
     clave: ncClave
   };
+  if (!document.getElementById('nc-campo-dur').hidden) {
+    d.duracion = parseInt(document.getElementById('nc-dur').value, 10) || 0;
+    d.precio = parseInt(document.getElementById('nc-precio').value, 10) || 0;
+    if (!confirmarPrecioTatuaje(d.precio, precioDesde(ncServiciosSel))) return;
+  }
 
   btn.disabled = true; btn.textContent = 'Creando…';
   var respondio = false;
@@ -3344,6 +3816,10 @@ function pintarEditar(c) {
   document.getElementById('ed-telefono').value = c.telefono;
   document.getElementById('ed-notas').value = c.notas || '';
 
+  // "Avisar al tatuador" si la cita es de tatuaje; "al barbero" si es de barbería.
+  document.getElementById('ed-avisar').textContent =
+    'Avisar al ' + (catTrabajador(c.barbero) === CAT_TATUAJES ? 'tatuador' : 'barbero') + ' por WhatsApp';
+
   var selB = document.getElementById('ed-barbero');
   selB.innerHTML = '';
   var barberos = (formCita && formCita.barberos && formCita.barberos.length > 1)
@@ -3359,22 +3835,53 @@ function pintarEditar(c) {
 
   // Servicios: se pre-marcan los que coincidan con el nombre combinado actual
   // (ej. "Corte de Cabello + Barba" -> ["Corte de Cabello","Barba"]).
-  var catalogoEd = (formCita && formCita.servicios && formCita.servicios.length)
+  // Solo se ofrecen los servicios de la categoría de quien atiende (barbería
+  // o tatuajes). Si el dueño cambia a alguien de otra categoría, se desmarca
+  // todo y hay que elegir servicios de esa categoría.
+  var catalogoTodo = (formCita && formCita.servicios && formCita.servicios.length)
     ? formCita.servicios : [];
   var partesActuales = String(c.servicio || '').split(' + ').map(function(n) { return n.trim(); });
-  edServiciosSel = catalogoEd.filter(function(s) { return partesActuales.indexOf(s.nombre) >= 0; });
-  renderServiciosCheck('ed-servicios', catalogoEd, edServiciosSel, function() {
-    resumenServicios('ed-servicios-resumen', edServiciosSel);
-  });
-  if (edServiciosSel.length) {
-    resumenServicios('ed-servicios-resumen', edServiciosSel);
-  } else {
-    document.getElementById('ed-servicios-resumen').innerHTML =
-      'Servicio actual: <b>' + esc(c.servicio || '—') + '</b>. Si guardas sin marcar ninguno, se conserva igual.';
+  edServiciosSel = catalogoPara(catalogoTodo, c.barbero)
+    .filter(function(s) { return partesActuales.indexOf(s.nombre) >= 0; });
+  function pintarEd() {
+    var catalogoEd = catalogoPara(catalogoTodo, selB.value || c.barbero);
+    renderServiciosCheck('ed-servicios', catalogoEd, edServiciosSel, function() {
+      resumenServicios('ed-servicios-resumen', edServiciosSel);
+    });
+    if (edServiciosSel.length) {
+      resumenServicios('ed-servicios-resumen', edServiciosSel);
+    } else if ((selB.value || c.barbero) === c.barbero) {
+      document.getElementById('ed-servicios-resumen').innerHTML =
+        'Servicio actual: <b>' + esc(c.servicio || '—') + '</b>. Si guardas sin marcar ninguno, se conserva igual.';
+    } else {
+      document.getElementById('ed-servicios-resumen').innerHTML = 'Elige los servicios para ' + esc(selB.value) + '.';
+    }
   }
+  // Duración estimada: solo si quien atiende es tatuador. Arranca en la que
+  // ya tiene la cita; si cambian los servicios, en la suma de Config.
+  function pintarDurEd(desdeServicios) {
+    var esTat = catTrabajador(selB.value || c.barbero) === CAT_TATUAJES;
+    document.getElementById('ed-campo-dur').hidden = !esTat;
+    if (!esTat) return;
+    var base = desdeServicios && edServiciosSel.length
+      ? edServiciosSel.reduce(function(a, s) { return a + s.duracion; }, 0)
+      : (Number(c.duracion) || 120);
+    llenarDuraciones(document.getElementById('ed-dur'), 30, 720, 30, base);
+    document.getElementById('ed-precio').value = desdeServicios && edServiciosSel.length
+      ? precioDesde(edServiciosSel)
+      : (Number(c.precio) || '');
+  }
+  selB.onchange = function() {
+    var cat = catTrabajador(selB.value);
+    if (edServiciosSel.some(function(x) { return catDe(x) !== cat; })) edServiciosSel.splice(0, edServiciosSel.length);
+    pintarEd();
+    pintarDurEd(true);
+  };
+  pintarEd();
+  pintarDurEd(false);
 
   var dis = ya;
-  ['ed-fecha','ed-hora','ed-barbero','ed-cliente','ed-telefono','ed-notas','ed-guardar']
+  ['ed-fecha','ed-hora','ed-barbero','ed-dur','ed-precio','ed-cliente','ed-telefono','ed-notas','ed-guardar']
     .forEach(function(idg) { document.getElementById(idg).disabled = dis; });
   var edServBox = document.getElementById('ed-servicios');
   edServBox.style.opacity = dis ? '0.5' : '';
@@ -3401,6 +3908,13 @@ function guardarEdicion() {
     telefono: document.getElementById('ed-telefono').value.trim(),
     notas: document.getElementById('ed-notas').value.trim()
   };
+  if (!document.getElementById('ed-campo-dur').hidden) {
+    cambios.duracion = parseInt(document.getElementById('ed-dur').value, 10) || 0;
+    cambios.precio = parseInt(document.getElementById('ed-precio').value, 10) || 0;
+    if (!confirmarPrecioTatuaje(cambios.precio, precioDesde(edServiciosSel.length ? edServiciosSel
+        : catalogoPara((formCita && formCita.servicios) || [], document.getElementById('ed-barbero').value)
+            .filter(function(s) { return catDe(s) === CAT_TATUAJES; }).slice(0, 1)))) return;
+  }
 
   btn.disabled = true; btn.textContent = 'Guardando…';
   google.script.run
