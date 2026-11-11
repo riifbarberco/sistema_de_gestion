@@ -1347,6 +1347,9 @@ function crearCitaDashboard(token, d) {
   if (combo.categoria === CAT_TATUAJES && durElegida >= 30 && durElegida <= 720) {
     combo.duracion = durElegida;
   }
+  // Tatuajes: el precio lo pone el tatuador según tamaño y dificultad.
+  var precioAcordado = Math.round(Number(d.precio) || 0);
+  if (combo.categoria === CAT_TATUAJES && precioAcordado > 0) combo.precio = precioAcordado;
 
   // Uso interno: nombre y teléfono son opcionales (la reserva web sí los exige).
   var cliente = String(d.cliente || '').trim() || CLIENTE_SIN_NOMBRE;
@@ -1534,6 +1537,13 @@ function modificarCitaDashboard(token, id, cambios) {
           combo.duracion = durNueva;
         } else if (!(cambios.servicios && cambios.servicios.length) && Number(f[7]) > 0) {
           combo.duracion = Number(f[7]);
+        }
+        // Precio: el que acordó el tatuador (si lo cambió) o el que ya tenía.
+        var precioNuevo = Math.round(Number(cambios.precio) || 0);
+        if (precioNuevo > 0) {
+          combo.precio = precioNuevo;
+        } else if (!(cambios.servicios && cambios.servicios.length) && Number(f[8]) > 0) {
+          combo.precio = Number(f[8]);
         }
       }
 

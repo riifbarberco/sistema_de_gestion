@@ -1175,9 +1175,15 @@
     </div>
 
     <!-- Solo tatuajes: cuánto se reserva en la agenda (por defecto lo de Config) -->
-    <div class="campo" id="nc-campo-dur" hidden>
-      <label>Duración estimada del tatuaje</label>
-      <select id="nc-dur"></select>
+    <div class="campo campo-mitad" id="nc-campo-dur" hidden>
+      <div>
+        <label>Duración estimada</label>
+        <select id="nc-dur"></select>
+      </div>
+      <div>
+        <label>Precio acordado $</label>
+        <input id="nc-precio" type="number" min="0" step="10000">
+      </div>
     </div>
 
     <div class="campo" id="nc-campo-barbero">
@@ -1289,9 +1295,15 @@
       <div class="serv-resumen" id="ed-servicios-resumen"></div>
     </div>
     <!-- Solo tatuajes: ajustar cuánto se cree que va a tardar -->
-    <div class="campo" id="ed-campo-dur" hidden>
-      <label>Duración estimada del tatuaje</label>
-      <select id="ed-dur"></select>
+    <div class="campo campo-mitad" id="ed-campo-dur" hidden>
+      <div>
+        <label>Duración estimada</label>
+        <select id="ed-dur"></select>
+      </div>
+      <div>
+        <label>Precio acordado $</label>
+        <input id="ed-precio" type="number" min="0" step="10000">
+      </div>
     </div>
     <div class="campo"><label>Cliente</label><input id="ed-cliente" type="text" autocomplete="off"></div>
     <div class="campo"><label>Teléfono</label><input id="ed-telefono" type="tel" inputmode="numeric"></div>
@@ -2240,6 +2252,21 @@ function ncActualizarDur() {
   if (!esTat) return;
   var base = ncServiciosSel.reduce(function(a, s) { return a + s.duracion; }, 0);
   llenarDuraciones(document.getElementById('nc-dur'), 30, 720, 30, base);
+  // Precio: arranca en el "desde" de Config; el tatuador lo ajusta.
+  document.getElementById('nc-precio').value =
+    ncServiciosSel.reduce(function(a, s) { return a + s.precio; }, 0) || '';
+}
+
+/** Precio "desde" (suma de Config) de una selección de servicios. */
+function precioDesde(sel) {
+  return sel.reduce(function(a, s) { return a + (s.precio || 0); }, 0);
+}
+
+/** Si el precio acordado queda por debajo del "desde", se pregunta antes de guardar. */
+function confirmarPrecioTatuaje(precio, desde) {
+  if (!precio || !desde || precio >= desde) return true;
+  return confirm('El precio acordado (' + pesosExacto(precio) + ') es menor que el precio desde (' +
+                 pesosExacto(desde) + ').\n\n¿Guardar de todos modos?');
 }
 
 function catDe(s) { return (s && s.categoria) || CAT_BARBERIA; }
@@ -3729,6 +3756,8 @@ function guardarNuevaCita(forzar) {
   };
   if (!document.getElementById('nc-campo-dur').hidden) {
     d.duracion = parseInt(document.getElementById('nc-dur').value, 10) || 0;
+    d.precio = parseInt(document.getElementById('nc-precio').value, 10) || 0;
+    if (!confirmarPrecioTatuaje(d.precio, precioDesde(ncServiciosSel))) return;
   }
 
   btn.disabled = true; btn.textContent = 'Creando…';
@@ -3843,6 +3872,9 @@ function pintarEditar(c) {
       ? edServiciosSel.reduce(function(a, s) { return a + s.duracion; }, 0)
       : (Number(c.duracion) || 120);
     llenarDuraciones(document.getElementById('ed-dur'), 30, 720, 30, base);
+    document.getElementById('ed-precio').value = desdeServicios && edServiciosSel.length
+      ? precioDesde(edServiciosSel)
+      : (Number(c.precio) || '');
   }
   selB.onchange = function() {
     var cat = catTrabajador(selB.value);
@@ -3854,7 +3886,7 @@ function pintarEditar(c) {
   pintarDurEd(false);
 
   var dis = ya;
-  ['ed-fecha','ed-hora','ed-barbero','ed-dur','ed-cliente','ed-telefono','ed-notas','ed-guardar']
+  ['ed-fecha','ed-hora','ed-barbero','ed-dur','ed-precio','ed-cliente','ed-telefono','ed-notas','ed-guardar']
     .forEach(function(idg) { document.getElementById(idg).disabled = dis; });
   var edServBox = document.getElementById('ed-servicios');
   edServBox.style.opacity = dis ? '0.5' : '';
@@ -3883,6 +3915,10 @@ function guardarEdicion() {
   };
   if (!document.getElementById('ed-campo-dur').hidden) {
     cambios.duracion = parseInt(document.getElementById('ed-dur').value, 10) || 0;
+    cambios.precio = parseInt(document.getElementById('ed-precio').value, 10) || 0;
+    if (!confirmarPrecioTatuaje(cambios.precio, precioDesde(edServiciosSel.length ? edServiciosSel
+        : catalogoPara((formCita && formCita.servicios) || [], document.getElementById('ed-barbero').value)
+            .filter(function(s) { return catDe(s) === CAT_TATUAJES; }).slice(0, 1)))) return;
   }
 
   btn.disabled = true; btn.textContent = 'Guardando…';
