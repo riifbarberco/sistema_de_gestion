@@ -217,6 +217,9 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     totalBarberia:  Math.round(totalBarberia * 100) / 100,
     totalProductos: Math.round(totalProductos),
     totalVentas:    Math.round(totalVentas),
+    // Nombres de los tatuadores (solo para el dueño): así la tarjeta "Pago
+    // tatuador" sale aunque en el período todavía no haya tatuajes.
+    tatuadores:     verTodo ? _tatuadores_() : [],
     porPeriodo:     porPeriodo,
     topServicios:   topServicios,
     // Barbería primero, luego Tatuajes; dentro de cada una, el que más se le paga arriba.
@@ -369,7 +372,7 @@ function _dashboardVacio() {
     totalServicios: 0, totalCobrado: 0,
     totalComision: 0,  totalPropinas: 0,
     totalBarberia: 0,  totalProductos: 0, totalVentas: 0,
-    porPeriodo: [], topServicios: [], porTrabajador: [], servicios: []
+    porPeriodo: [], topServicios: [], porTrabajador: [], tatuadores: _tatuadores_(), servicios: []
   };
 }
 
@@ -887,6 +890,14 @@ function cerrarServicioDashboard(token, id, datos) {
 // ni le sume comisión a nadie: los productos son 100% de la barbería.
 var VENTA_BARBERO  = 'Mostrador';
 var VENTA_SERVICIO = 'Venta de productos';
+
+/** Nombres de Config que son tatuadores (Tipo/Rol "Tatuador" en la hoja Barberos). */
+function _tatuadores_() {
+  try {
+    return leerConfig_().barberos.map(function (b) { return b.nombre; })
+      .filter(function (n) { return categoriaTrabajador_(n) === CAT_TATUAJES; });
+  } catch (e) { return []; }
+}
 
 /** Una fila del Registro es venta suelta si su nota empieza por "Venta ". */
 function _esVentaSuelta_(nota) {

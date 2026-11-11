@@ -1032,8 +1032,8 @@
           <button onclick="calNav(1)">›</button>
         </div>
         <button class="btn-primary" style="margin-left:auto;padding:8px 16px;" onclick="abrirNuevaCita()">＋</button>
-        <button class="btn-primary" style="padding:8px 12px;" onclick="abrirVenta()" title="Vender productos">🛒</button>
       </div>
+      <button class="btn-sec" onclick="abrirVenta()" style="margin-bottom:10px;">🛒 Vender productos</button>
       <div id="cal-area"><div class="spinner"></div></div>
       <div id="cal-tiempo" style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:6px;"></div>
     </section>
@@ -1970,8 +1970,7 @@ function renderDashboard(d) {
   // Un empleado solo ve "Tu pago".
   var pt = d.porTrabajador || [];
   var tieneTat = esDueno && pt.some(function(t) { return t.categoria === CAT_TATUAJES; });
-  var hayTatuador = esDueno && (tieneTat || !!(formCita && formCita.categorias &&
-    Object.keys(formCita.categorias).some(function(n) { return formCita.categorias[n] === CAT_TATUAJES; })));
+  var hayTatuador = esDueno && (tieneTat || (d.tatuadores || []).length > 0);
   function pagoDe(cat) {
     return pt.filter(function(t) { return t.categoria === cat; })
              .reduce(function(a, t) { return a + t.pago; }, 0);
