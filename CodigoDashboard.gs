@@ -201,7 +201,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     servicios.push({
       id: citaId,
       fecha: iso, hora: hora, barbero: fBarbero,
-      servicio: nombreSrv, cliente: cliente,
+      servicio: nombreSrv, cliente: cliente, telefono: String(f[4] || '').trim(),
       valor: Number(f[6]) || 0,   // valor del servicio antes del descuento (col G)
       duracion: Number(f[20]) || 0,
       total: total, pagoBarbero: pagoBarbero, neto: neto, valorProductos: valorProd,
@@ -839,6 +839,200 @@ function getEnCursoDashboard(token) {
   return { ok: true, enCurso: _enCurso_(), ahora: Date.now() };
 }
 
+// ─────────────────────────────────────────────
+//  DESCUENTOS CONTROLADOS POR EL DUEÑO
+// ─────────────────────────────────────────────
+// Solo para clientes registrados (nombre + teléfono). La hoja "Descuentos"
+// tiene una fila por cliente (llave = últimos 10 dígitos del teléfono):
+//  · Aprobado  → el descuento sale puesto solo con el monto aprobado.
+//  · Pendiente → un barbero dio un descuento nuevo (o distinto): se aplicó de
+//    una vez y el dueño lo aprueba o rechaza en el dashboard. Se avisa una vez.
+//  · Rechazado → se quitó el descuento de esas citas.
+// Lo que da el dueño queda aprobado de una vez.
+var HOJA_DESCUENTOS = 'Descuentos';
+var DESC_ENC = ['Teléfono', 'Cliente', 'Monto aprobado', 'Estado', 'Monto pedido',
+                'Citas pendientes', 'Pedido por', 'Fecha pedido', 'Revisado'];
+
+function _hojaDescuentos_() {
+  var lb = libro_();
+  var h = lb.getSheetByName(HOJA_DESCUENTOS);
+  if (!h) {
+    h = lb.insertSheet(HOJA_DESCUENTOS);
+    h.getRange(1, 1, 1, DESC_ENC.length).setValues([DESC_ENC])
+      .setFontWeight('bold').setBackground('#111111').setFontColor('#FFFFFF');
+    h.getRange('A:A').setNumberFormat('@');
+    h.setFrozenRows(1);
+  }
+  return h;
+}
+
+function _llaveTel_(tel) { return String(tel || '').replace(/\D/g, '').slice(-10); }
+
+/** { llave: { fila, telefono, cliente, aprobado, estado, pedido, citas:[], por, fecha } } */
+function _leerDescuentos_() {
+  var h = _hojaDescuentos_();
+  var mapa = {};
+  if (h.getLastRow() < 2) return mapa;
+  h.getRange(2, 1, h.getLastRow() - 1, DESC_ENC.length).getValues().forEach(function (f, i) {
+    var k = _llaveTel_(f[0]);
+    if (k.length < 7) return;
+    mapa[k] = {
+      fila: i + 2, telefono: String(f[0]).trim(), cliente: String(f[1]).trim(),
+      aprobado: Number(f[2]) || 0, estado: String(f[3]).trim(), pedido: Number(f[4]) || 0,
+      citas: String(f[5] || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean),
+      por: String(f[6]).trim(),
+      fecha: f[7] instanceof Date ? Utilities.formatDate(f[7], TZ, 'yyyy-MM-dd HH:mm') : String(f[7] || '')
+    };
+  });
+  return mapa;
+}
+
+function _guardarDescuento_(h, d) {
+  var fila = [d.telefono, d.cliente, d.aprobado || '', d.estado, d.pedido || '',
+              (d.citas || []).join(', '), d.por || '', d.fecha || '', d.revisado || ''];
+  if (d.fila) h.getRange(d.fila, 1, 1, fila.length).setValues([fila]);
+  else { h.appendRow(fila); d.fila = h.getLastRow(); }
+}
+
+/** ¿El cliente de esta cita de Reservas está registrado (nombre + teléfono)? */
+function _clienteRegistrado_(f) {
+  var nombre = String(f[9] || '').trim();
+  var k = _llaveTel_(f[10]);
+  return (nombre && nombre !== CLIENTE_SIN_NOMBRE && k.length >= 7) ? { nombre: nombre, llave: k, tel: String(f[10]).trim() } : null;
+}
+
+/**
+ * Lo llama cerrarServicioDashboard cuando el descuento CAMBIÓ. Devuelve
+ * { ok } o { ok:false, error }. Si queda pendiente, avisa a los dueños (una vez).
+ */
+function _registrarDescuento_(s, res, id, monto) {
+  if (!(monto > 0)) return { ok: true };
+  var cli = res ? _clienteRegistrado_(res.f) : null;
+  if (!cli) return { ok: false, error: 'El descuento es solo para clientes registrados (con nombre y teléfono).' };
+
+  var h = _hojaDescuentos_();
+  var mapa = _leerDescuentos_();
+  var d = mapa[cli.llave] || { telefono: cli.tel, cliente: cli.nombre, citas: [] };
+  d.cliente = cli.nombre;
+  var ahora = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm');
+
+  if (s.rol === 'Dueño') {                       // lo da el dueño: queda aprobado
+    d.aprobado = monto; d.estado = 'Aprobado'; d.pedido = 0; d.citas = [];
+    d.por = s.nombre; d.revisado = ahora;
+    _guardarDescuento_(h, d);
+    return { ok: true };
+  }
+  if (d.estado === 'Aprobado' && d.aprobado === monto) return { ok: true };   // ya aprobado así
+
+  var yaAvisado = (d.estado === 'Pendiente' && d.pedido === monto);
+  d.estado = 'Pendiente'; d.pedido = monto; d.por = s.nombre; d.fecha = ahora;
+  if (d.citas.indexOf(id) < 0) d.citas.push(id);
+  _guardarDescuento_(h, d);
+
+  if (!yaAvisado) {
+    try {
+      var chats = _tgChats_();
+      var url = _urlDashboard_();
+      var txt = '💸 <b>Descuento por aprobar</b>\n' + _tgEsc_(s.nombre) + ' le dio <b>' + _tgEsc_(pesos_(monto)) +
+        '</b> de descuento a <b>' + _tgEsc_(cli.nombre) + '</b> (' + _tgEsc_(String(res.f[6] || '')) + ').' +
+        (d.aprobado ? '\nAntes tenía aprobado ' + _tgEsc_(pesos_(d.aprobado)) + '.' : '') +
+        '\nYa se aplicó; apruébalo o recházalo en el dashboard (Resumen).' +
+        (url ? '\n👉 <a href="' + url + '">Abrir dashboard</a>' : '');
+      _tgDuenos_().forEach(function (n) { if (chats[n]) _tgEnviar_(chats[n], txt); });
+    } catch (e) { console.error('aviso descuento: ' + e); }
+  }
+  return { ok: true };
+}
+
+/**
+ * Para el dashboard. Todos reciben { aprobados: {llave: monto} } (para poner
+ * el descuento solo); el dueño además la lista completa para revisar.
+ */
+function getDescuentosDashboard(token) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  var mapa = _leerDescuentos_();
+  var aprobados = {}, pendientes = [], lista = [];
+  Object.keys(mapa).forEach(function (k) {
+    var d = mapa[k];
+    if (d.aprobado > 0 && d.estado !== 'Rechazado' && d.estado !== 'Quitado') aprobados[k] = d.aprobado;
+    if (s.rol !== 'Dueño') return;
+    var item = { llave: k, cliente: d.cliente, telefono: d.telefono, aprobado: d.aprobado,
+                 estado: d.estado, pedido: d.pedido, citas: d.citas.length, por: d.por, fecha: d.fecha };
+    if (d.estado === 'Pendiente') pendientes.push(item);
+    else if (d.estado === 'Aprobado') lista.push(item);
+  });
+  lista.sort(function (a, b) { return a.cliente < b.cliente ? -1 : 1; });
+  return { ok: true, aprobados: aprobados, pendientes: pendientes, lista: lista };
+}
+
+/**
+ * El dueño decide: 'aprobar' (el monto pedido queda como el aprobado),
+ * 'rechazar' (se quita el descuento de las citas pendientes y se le avisa al
+ * barbero) o 'quitar' (el cliente sale de la lista; lo ya cobrado no se toca).
+ */
+function decidirDescuentoDashboard(token, llave, accion) {
+  var s;
+  try { s = _sesionDueno_(token); } catch (e) { return { ok: false, error: e.message }; }
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); }
+  catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
+  try {
+    var h = _hojaDescuentos_();
+    var d = _leerDescuentos_()[String(llave || '')];
+    if (!d) return { ok: false, error: 'No encontramos ese cliente en Descuentos.' };
+    var ahora = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm');
+
+    if (accion === 'aprobar') {
+      if (d.estado === 'Pendiente') d.aprobado = d.pedido;
+      d.estado = 'Aprobado'; d.pedido = 0; d.citas = []; d.revisado = ahora;
+      _guardarDescuento_(h, d);
+      return { ok: true };
+    }
+
+    if (accion === 'rechazar') {
+      var hg = libro_().getSheetByName('Registro');
+      var filas = idsEnRegistro_();
+      var quitadas = 0;
+      d.citas.forEach(function (id) {
+        var fila = filas[id];
+        if (!fila || !hg) return;
+        // Vuelve al descuento que tenía aprobado (o a ninguno).
+        var valor = Number(hg.getRange(fila, 7).getValue()) || 0;
+        var queda = Math.min(d.aprobado || 0, valor);
+        hg.getRange(fila, 8).setValue(queda);                              // Descuento
+        if (valor > 0) hg.getRange(fila, 9).setValue(Math.max(valor - queda, 0)); // Total
+        _aplicarFormulasComision_(hg, fila);
+        quitadas++;
+      });
+      var barbero = d.por;
+      // Vuelve a lo que tenía aprobado antes (si tenía); si no, queda rechazado.
+      d.estado = d.aprobado > 0 ? 'Aprobado' : 'Rechazado';
+      d.pedido = 0; d.citas = []; d.revisado = ahora;
+      _guardarDescuento_(h, d);
+      try {
+        var chats = _tgChats_();
+        if (barbero && chats[barbero]) {
+          _tgEnviar_(chats[barbero], '❌ <b>Descuento no aprobado</b>\nEl descuento a <b>' + _tgEsc_(d.cliente) +
+            '</b> no fue aprobado' + (quitadas ? (d.aprobado > 0 ? ' y el cobro volvió a ' + _tgEsc_(pesos_(d.aprobado))
+            : ' y se quitó del cobro') : '') + '.');
+        }
+      } catch (e) {}
+      return { ok: true, quitadas: quitadas };
+    }
+
+    if (accion === 'quitar') {
+      d.estado = 'Quitado'; d.aprobado = 0; d.pedido = 0; d.citas = []; d.revisado = ahora;
+      _guardarDescuento_(h, d);
+      return { ok: true };
+    }
+    return { ok: false, error: 'Acción no válida.' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** Deja listos los encabezados de las columnas de tiempo real en el Registro. */
 function _asegurarColsTiempoReal_(hg) {
   if (hg.getMaxColumns() < COL_INICIO_REAL) {
@@ -931,6 +1125,19 @@ function cerrarServicioDashboard(token, id, datos) {
       }
     }
 
+    // Descuento: solo clientes registrados. Se revisa ANTES de escribir nada y
+    // solo si cambió (re-guardar un cierre viejo con su descuento no lo frena).
+    var descNuevo = Number(datos.descuento);
+    if (isNaN(descNuevo) || descNuevo < 0) descNuevo = 0;
+    var descAntes = Number(hg.getRange(fila, 8).getValue()) || 0;
+    var descCambio = descNuevo > 0 && descNuevo !== descAntes;
+    if (descCambio) {
+      var resDesc = _filaReserva_(libro_().getSheetByName(HOJA_RESERVAS), id);
+      if (!resDesc || !_clienteRegistrado_(resDesc.f)) {
+        return { ok: false, error: 'El descuento es solo para clientes registrados (con nombre y teléfono).' };
+      }
+    }
+
     var estado = String(datos.estado || '').trim();
     if (estado) hg.getRange(fila, 12).setValue(estado);
 
@@ -1015,6 +1222,11 @@ function cerrarServicioDashboard(token, id, datos) {
     if (isNaN(desc) || desc < 0) desc = 0;
     hg.getRange(fila, 8).setValue(desc);
     if (valorServ > 0) hg.getRange(fila, 9).setValue(Math.max(valorServ - desc, 0));
+    // Descuento nuevo o distinto: a la lista del dueño (aprobado si lo dio él;
+    // si no, pendiente con aviso por Telegram una sola vez).
+    if (descCambio) {
+      try { _registrarDescuento_(s, res, id, desc); } catch (e) { console.error('descuento: ' + e); }
+    }
 
     // --- Productos: texto en col 22, delta al inventario ---
     // datos.productos = { 'Agua': {v:2, r:0}, 'Gaseosa': {v:1, r:0} }

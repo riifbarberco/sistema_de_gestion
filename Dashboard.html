@@ -945,6 +945,20 @@
   .ah-servicios button.on { border-color: var(--green); background: rgba(76,175,122,0.18); }
   .ah-servicios button.on b::before { content: '✓ '; color: var(--green); }
   .ah-servicios button.siempre { grid-column: 1 / -1; border-color: var(--gold); background: rgba(201,168,76,0.12); }
+  .mr-desc-ok {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: rgba(76,175,122,0.12); border: 1px solid var(--green); border-radius: 8px;
+    padding: 10px 12px; font-size: 14px;
+  }
+  .mr-desc-ok button { background: none; border: none; color: var(--text-muted); font-size: 12px;
+    text-decoration: underline; cursor: pointer; }
+  .desc-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .desc-row:last-child { border-bottom: none; }
+  .desc-row .desc-info { flex: 1; min-width: 0; }
+  .desc-row .desc-btns { display: flex; gap: 6px; flex: none; }
+  .desc-row .desc-btns button { border: none; border-radius: 8px; padding: 10px 12px; font-weight: 700; cursor: pointer; font-size: 13px; }
+  .desc-ap { background: var(--green); color: #000; }
+  .desc-re { background: var(--surface2); color: var(--text); border: 1px solid var(--border) !important; }
   .sig-card { background: var(--surface2); border-radius: 10px; padding: 12px; margin-bottom: 4px; }
   .sig-card small { display: block; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
   .sig-card b { font-size: 17px; }
@@ -1069,6 +1083,12 @@
     </div>
 
     <!-- Pago por trabajador (solo dueño): barberos y tatuadores por separado -->
+    <!-- Descuentos (solo dueño): por aprobar y clientes con descuento -->
+    <div class="section" id="sec-descuentos" hidden>
+      <div class="section-title">Descuentos</div>
+      <div id="descuentos-area"></div>
+    </div>
+
     <div class="section" id="sec-equipo" hidden>
       <div class="section-title">Pago por trabajador</div>
       <div id="equipo-area"></div>
@@ -1256,13 +1276,24 @@
         <div class="mr-metodos" id="mr-metodos"></div>
       </div>
       <div class="campo" id="mr-productos"></div>
+      <!-- Descuento: solo clientes registrados. Si ya está aprobado, sale puesto solo. -->
+      <div class="campo" id="mr-campo-desc" hidden>
+        <label>Descuento</label>
+        <div class="mr-desc-ok" id="mr-desc-ok" hidden></div>
+        <button type="button" class="mr-link" id="mr-desc-abrir" style="padding:4px 0;text-align:left;" onclick="rapidoDescEditar()">＋ Dar descuento</button>
+        <div id="mr-desc-editar" hidden>
+          <input id="mr-descuento" type="number" min="0" step="1000" placeholder="$ 0" inputmode="numeric">
+          <div class="serv-resumen" id="mr-desc-nota"></div>
+        </div>
+      </div>
+
       <!-- Propina: solo la ve y la registra el barbero (no tiene que ver con la barbería) -->
       <div class="campo" id="mr-campo-propina">
         <label>Propina <span style="text-transform:none;letter-spacing:0;">(opcional)</span></label>
         <input id="mr-propina" type="number" min="0" step="500" placeholder="0" inputmode="numeric">
       </div>
       <button class="btn-primary" id="mr-listo" onclick="rapidoListo()">✓ Listo</button>
-      <button class="mr-link" onclick="rapidoMasOpciones()">Más opciones (cambiar servicio, descuento, cortesías…)</button>
+      <button class="mr-link" onclick="rapidoMasOpciones()">Más opciones (cambiar servicio, cortesías…)</button>
     </div>
 
     <!-- 4. Listo → siguiente cliente -->
@@ -1911,6 +1942,7 @@ var formulariosPrecargados = false;
 function precargarFormularios() {
   if (formulariosPrecargados) return;
   formulariosPrecargados = true;
+  cargarDescuentos();
   if (!opcionesCierre) {
     google.script.run
       .withSuccessHandler(function(o) { opcionesCierre = o; })
@@ -2130,6 +2162,7 @@ function cargarDatos(desde, hasta) {
       if (desde !== desdeActual || hasta !== hastaActual) return;   // ya cambió de período
       cacheGuardar(clave, datos);
       renderDashboard(datos);
+      if (rolActual === 'Dueño') cargarDescuentos();
     })
     .withFailureHandler(function(err) {
       sec.style.opacity = '';
@@ -2653,7 +2686,7 @@ function abrirCierrePorId(id) {
       pintarCierre({
         id: c.id, servicio: c.servicio, cliente: c.cliente,
         barbero: c.barbero, precio: c.precio, duracion: c.duracion,
-        fecha: c.fecha, hora: c.hora,
+        fecha: c.fecha, hora: c.hora, telefono: c.telefono,
         estado: c.estadoRegistro || 'Pendiente',
         metodo: c.metodoRegistro || '', propina: c.propinaRegistro || 0,
         descuento: c.descuentoRegistro || 0, productos: c.productosRegistro || {}
@@ -2751,7 +2784,10 @@ function pintarCierre(s) {
   // campo se esconde pero conserva lo que tenía (no se borra al guardar).
   document.getElementById('mc-propina').value = s.propina ? s.propina : '';
   document.getElementById('mc-campo-propina').hidden = (rolActual === 'Dueño');
-  document.getElementById('mc-descuento').value = s.descuento ? s.descuento : '';
+  // Sin cerrar todavía y con descuento aprobado: sale puesto solo.
+  var descAp = descAprobados[llaveTel(s.telefono)] || 0;
+  var sinCerrar = !s.estado || s.estado === 'Pendiente';
+  document.getElementById('mc-descuento').value = s.descuento ? s.descuento : (sinCerrar && descAp ? descAp : '');
 
   // Productos (dinámico: lo que haya en el inventario)
   var prodBox = document.getElementById('mc-productos');
@@ -2941,6 +2977,9 @@ var rapidoMetodo   = '';
 var rapidoFinMs    = 0;    // cuándo se tocó "Terminar" (hora del servidor)
 var rapidoTic      = null; // intervalo del reloj grande
 var rapidoSig      = null; // siguiente cita que se ofrece al terminar
+var rapidoDesc     = 0;    // descuento que va en el cobro rápido (aprobado o escrito)
+var rapidoDescEdit = false;// el barbero abrió el campo para escribir el monto
+var descAprobados  = {};   // { últimos 10 dígitos del teléfono: monto aprobado }
 var cierreDurCrono = 0;    // tatuaje: minutos del cronómetro para prellenar el cierre completo
 var cierreTerminoMs = 0;   // cierre completo abierto desde "Terminar": fin del cronómetro
 var ESTADOS_CERRADOS = ['Atendido', 'No asistió', 'Cancelado'];
@@ -3000,7 +3039,7 @@ function resumenTocar(i) {
   var s = todosServicios[i];
   if (!s || s.venta) { abrirCierre(i); return; }
   tocarCita({
-    id: s.id, fecha: s.fecha, hora: s.hora, cliente: s.cliente, servicio: s.servicio,
+    id: s.id, fecha: s.fecha, hora: s.hora, cliente: s.cliente, servicio: s.servicio, telefono: s.telefono,
     barbero: s.barbero || (rolActual === 'Dueño' ? '' : barberoActual),
     estadoReal: (s.estado === 'Pendiente') ? '' : s.estado
   }, function() { abrirCierre(i); });
@@ -3025,6 +3064,7 @@ function abrirRapido(c) {
   document.getElementById('mr-novino').disabled = false;
   rapidoPaso(enCurso[c.id] ? 'curso' : 'iniciar');
   document.getElementById('modal-rapido').classList.add('abierto');
+  if (clienteRegistrado(c)) cargarDescuentos();   // por si el dueño aprobó hace poco
   // Métodos y productos se necesitan al cobrar: se traen desde ya, por detrás.
   if (!opcionesCierre) {
     google.script.run
@@ -3151,6 +3191,7 @@ function rapidoTerminar() {
     : 'Servicio terminado';
   document.getElementById('mr-propina').value = '';
   document.getElementById('mr-campo-propina').hidden = (rolActual === 'Dueño');
+  rapidoPrepararDesc(c);
   limpiarError(document.getElementById('mr-error'));
 
   var pintarCobro = function() {
@@ -3252,7 +3293,7 @@ function rapidoListo() {
   var propina = parseInt(document.getElementById('mr-propina').value, 10) || 0;
   if (propina < 0) propina = 0;
   var datos = {
-    estado: 'Atendido', metodo: rapidoMetodo, propina: propina, descuento: 0,
+    estado: 'Atendido', metodo: rapidoMetodo, propina: propina, descuento: rapidoDescMonto(),
     productos: productos, terminoMs: rapidoFinMs
   };
   rapidoCerrar(datos, document.getElementById('mr-listo'), '✓ Listo');
@@ -3278,6 +3319,126 @@ function rapidoMasOpciones() {
   cerrarRapido();
   cierreTerminoMs = fin;
   abrirCierrePorId(id);
+}
+
+// ─────────────────────────────────────────────
+//  DESCUENTOS — solo clientes registrados; el dueño aprueba
+// ─────────────────────────────────────────────
+function llaveTel(t) { return String(t || '').replace(/\D/g, '').slice(-10); }
+
+function clienteRegistrado(c) {
+  var n = String((c && c.cliente) || '').trim();
+  return llaveTel(c && c.telefono).length >= 7 && n && n !== 'Sin nombre' && n !== 'Cliente';
+}
+
+/** Trae los descuentos aprobados (y, para el dueño, la lista para revisar). */
+function cargarDescuentos(alLlegar) {
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || !r.ok) return;
+      descAprobados = r.aprobados || {};
+      if (rolActual === 'Dueño') renderDescuentos(r);
+      if (alLlegar) alLlegar();
+    })
+    .withFailureHandler(function() {})
+    .getDescuentosDashboard(tokenActual);
+}
+
+/** Cobro: si el cliente tiene descuento aprobado, sale puesto solo; si no, "＋ Dar descuento". */
+function rapidoPrepararDesc(c) {
+  rapidoDesc = 0; rapidoDescEdit = false;
+  var campo = document.getElementById('mr-campo-desc');
+  campo.hidden = !clienteRegistrado(c);
+  if (campo.hidden) return;
+  var ap = descAprobados[llaveTel(c.telefono)] || 0;
+  document.getElementById('mr-desc-editar').hidden = true;
+  document.getElementById('mr-descuento').value = '';
+  if (ap > 0) {
+    rapidoDesc = ap;
+    var ok = document.getElementById('mr-desc-ok');
+    ok.innerHTML = '<span>🏷️ Descuento aprobado <b>' + pesosExacto(ap) + '</b></span>' +
+      '<span><button type="button" onclick="rapidoDescEditar()">Cambiar</button> ' +
+      '<button type="button" onclick="rapidoDescQuitar()">Quitar</button></span>';
+    ok.hidden = false;
+    document.getElementById('mr-desc-abrir').hidden = true;
+  } else {
+    document.getElementById('mr-desc-ok').hidden = true;
+    document.getElementById('mr-desc-abrir').hidden = false;
+  }
+}
+
+function rapidoDescEditar() {
+  rapidoDescEdit = true;
+  document.getElementById('mr-desc-ok').hidden = true;
+  document.getElementById('mr-desc-abrir').hidden = true;
+  document.getElementById('mr-desc-editar').hidden = false;
+  var input = document.getElementById('mr-descuento');
+  input.value = rapidoDesc || '';
+  document.getElementById('mr-desc-nota').textContent = (rolActual === 'Dueño')
+    ? 'Queda aprobado: la próxima vez a este cliente le sale puesto solo.'
+    : 'Se aplica ya. Le llega al dueño para aprobarlo; cuando lo apruebe, la próxima vez sale puesto solo.';
+  input.focus();
+}
+
+function rapidoDescQuitar() {
+  rapidoDesc = 0; rapidoDescEdit = false;
+  document.getElementById('mr-desc-ok').hidden = true;
+  document.getElementById('mr-desc-editar').hidden = true;
+  document.getElementById('mr-desc-abrir').hidden = false;
+}
+
+function rapidoDescMonto() {
+  if (document.getElementById('mr-campo-desc').hidden) return 0;
+  if (rapidoDescEdit) {
+    var v = parseInt(document.getElementById('mr-descuento').value, 10) || 0;
+    return v > 0 ? v : 0;
+  }
+  return rapidoDesc;
+}
+
+/** Resumen del dueño: descuentos por aprobar y clientes con descuento. */
+function renderDescuentos(r) {
+  var sec = document.getElementById('sec-descuentos');
+  var pend = r.pendientes || [], lista = r.lista || [];
+  sec.hidden = !(pend.length || lista.length);
+  if (sec.hidden) return;
+  var html = '';
+  if (pend.length) {
+    html += '<div class="eq-cat"><span>💸 Por aprobar (' + pend.length + ')</span><span></span></div>';
+    pend.forEach(function(d) {
+      html += '<div class="desc-row"><div class="desc-info">' +
+        '<div class="eq-nom">' + esc(d.cliente) + ' · ' + pesosExacto(d.pedido) + '</div>' +
+        '<div class="eq-sub">Lo dio ' + esc(d.por || '—') + ' · ' + d.citas + (d.citas === 1 ? ' cita' : ' citas') +
+        (d.aprobado ? ' · antes tenía ' + pesosExacto(d.aprobado) : '') + '</div></div>' +
+        '<div class="desc-btns"><button class="desc-ap" onclick="decidirDescuento(\'' + esc(d.llave) + '\',\'aprobar\')">✓ Aprobar</button>' +
+        '<button class="desc-re" onclick="decidirDescuento(\'' + esc(d.llave) + '\',\'rechazar\')">✕</button></div></div>';
+    });
+  }
+  if (lista.length) {
+    html += '<details style="margin-top:8px;"><summary class="eq-sub" style="cursor:pointer;padding:6px 0;">' +
+      'Clientes con descuento aprobado (' + lista.length + ')</summary>';
+    lista.forEach(function(d) {
+      html += '<div class="desc-row"><div class="desc-info">' +
+        '<div class="eq-nom">' + esc(d.cliente) + ' · ' + pesosExacto(d.aprobado) + '</div>' +
+        '<div class="eq-sub">' + esc(d.telefono) + '</div></div>' +
+        '<div class="desc-btns"><button class="desc-re" onclick="decidirDescuento(\'' + esc(d.llave) + '\',\'quitar\')">Quitar</button></div></div>';
+    });
+    html += '</details>';
+  }
+  document.getElementById('descuentos-area').innerHTML = html;
+}
+
+function decidirDescuento(llave, accion) {
+  if (accion === 'rechazar' && !confirm('¿Rechazar este descuento? Se le quita de las citas donde se aplicó y le avisa al barbero.')) return;
+  if (accion === 'quitar' && !confirm('¿Quitar a este cliente de la lista de descuentos? Lo ya cobrado no cambia.')) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || !r.ok) { alert((r && r.error) || 'No se pudo guardar.'); return; }
+      cargarDescuentos();
+      if (accion === 'rechazar') cargarDatos(desdeActual, hastaActual);
+    })
+    .withFailureHandler(function() { alert('No se pudo guardar. Revisa tu conexión.'); })
+    .decidirDescuentoDashboard(tokenActual, llave, accion);
 }
 
 /** Próxima cita pendiente de hoy del mismo barbero (sin iniciar ni cerrar). */
