@@ -942,6 +942,7 @@
   .ah-servicios button b { display: block; font-size: 15px; }
   .ah-servicios button small { display: block; font-size: 12px; color: var(--text-muted); margin-top: 4px; }
   .ah-servicios button:disabled { opacity: .5; }
+  .ah-servicios button.siempre { grid-column: 1 / -1; border-color: var(--gold); background: rgba(201,168,76,0.12); }
   .mr-serv-linea { display: flex; align-items: center; justify-content: space-between; gap: 10px;
     background: var(--surface2); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
   .mr-cambiar { background: none; border: 1px solid var(--border); color: var(--gold); border-radius: 6px;
@@ -1294,9 +1295,11 @@
       <label>¿Quién atiende?</label>
       <div class="mr-metodos" id="ah-barberos"></div>
     </div>
-    <div class="campo">
+    <div class="campo campo-auto">
       <label>Cliente <span style="text-transform:none;letter-spacing:0;">(opcional)</span></label>
-      <input id="ah-cliente" type="text" autocomplete="off" placeholder="Nombre">
+      <input id="ah-cliente" type="text" autocomplete="off" placeholder="Nombre o teléfono de un cliente que ya vino">
+      <div class="sugerencias" id="ah-sug" hidden></div>
+      <div class="cliente-conocido" id="ah-cliente-info" hidden></div>
     </div>
     <div class="campo">
       <label>Servicio</label>
@@ -2671,8 +2674,10 @@ function abrirCierrePorId(id) {
 }
 
 /** Pinta el modal de cierre con los datos de `s` (mismo shape para las dos entradas de arriba). */
+var cierreBarbero = '';   // de quién es la cita abierta en el cierre completo
 function pintarCierre(s) {
   cierreCitaId = s.id;
+  cierreBarbero = s.barbero || (rolActual === 'Dueño' ? '' : barberoActual);
 
   document.getElementById('mc-titulo').textContent = s.servicio || 'Cerrar servicio';
   document.getElementById('mc-sub').textContent =
@@ -2741,7 +2746,7 @@ function pintarCierre(s) {
   // Método de pago
   var selM = document.getElementById('mc-metodo');
   selM.innerHTML = '<option value="">— Sin registrar —</option>';
-  opcionesCierre.metodos.forEach(function(m) {
+  ordenarPorUso(opcionesCierre.metodos, usoMetodos(s.barbero)).forEach(function(m) {
     var o = document.createElement('option');
     o.value = m; o.textContent = m;
     if (m === s.metodo) o.selected = true;
@@ -3168,7 +3173,7 @@ function rapidoTerminar() {
 
     var box = document.getElementById('mr-metodos');
     box.innerHTML = '';
-    (opcionesCierre.metodos || []).forEach(function(m) {
+    ordenarPorUso(opcionesCierre.metodos || [], usoMetodos(c.barbero)).forEach(function(m) {
       var b = document.createElement('button');
       b.type = 'button';
       b.textContent = m;
@@ -3233,6 +3238,7 @@ function rapidoCerrar(datos, btn, textoBtn) {
         var hechos = datos.servicios ||
           String(c.servicio || '').split(SEPARADOR_COMBO).map(function(n) { return n.trim(); });
         sumarUso(c.barbero, hechos);
+        if (datos.metodo) sumarUsoMetodo(c.barbero, datos.metodo);
         rapidoMostrarSiguiente(c, r.minReales);
       } else {
         cerrarRapido();
@@ -3349,6 +3355,25 @@ function rapidoIniciarSiguiente() {
   rapidoIniciar();
 }
 
+// Métodos de pago más usados por cada barbero (en este celular), para ponerlos primero.
+function usoMetodos(b) {
+  try { return JSON.parse(localStorage.getItem('riif_usoMet_' + b) || '{}') || {}; }
+  catch (e) { return {}; }
+}
+function sumarUsoMetodo(b, m) {
+  try {
+    var u = usoMetodos(b);
+    u[m] = (u[m] || 0) + 1;
+    localStorage.setItem('riif_usoMet_' + b, JSON.stringify(u));
+  } catch (e) {}
+}
+/** Copia de `lista` ordenada por uso (más usado primero); los empates quedan como en Config. */
+function ordenarPorUso(lista, uso) {
+  return lista.map(function(x, i) { return { x: x, i: i }; })
+    .sort(function(a, b) { return ((uso[b.x] || 0) - (uso[a.x] || 0)) || (a.i - b.i); })
+    .map(function(o) { return o.x; });
+}
+
 // Servicios más usados por cada barbero (en este celular), para ponerlos primero.
 function usoServicios(b) {
   try { return JSON.parse(localStorage.getItem('riif_uso_' + b) || '{}') || {}; }
@@ -3453,6 +3478,7 @@ function hoyTerminar(id) {
 var ahBarbero = '';
 var ahClave   = '';
 var ahOcupado = false;
+var ahCliente = null;   // cliente elegido de las sugerencias (nombre, teléfono, último servicio)
 
 function abrirAhora() {
   if (!formCita) {
@@ -3466,6 +3492,10 @@ function abrirAhora() {
   ahOcupado = false;
   limpiarError(document.getElementById('ah-error'));
   document.getElementById('ah-cliente').value = '';
+  ahCliente = null;
+  document.getElementById('ah-sug').hidden = true;
+  document.getElementById('ah-cliente-info').hidden = true;
+  cargarClientes();   // por detrás: para sugerir clientes que ya vinieron
 
   var esDueno = (rolActual === 'Dueño' || formCita.rol === 'Dueño');
   var barberos = formCita.barberos || [];
@@ -3505,17 +3535,79 @@ function ahPintarServicios() {
     .sort(function(a, b) { return (uso[b.nombre] || 0) - (uso[a.nombre] || 0); });
   box.innerHTML = '';
   if (!lista.length) { box.innerHTML = '<div class="serv-resumen">No hay servicios para ' + esc(ahBarbero) + '.</div>'; return; }
+
+  // Cliente conocido: su servicio de la última vez va primero, con un toque.
+  var siempre = ahServiciosDeSiempre(lista);
+  if (siempre.length) {
+    var bs = document.createElement('button');
+    bs.type = 'button';
+    bs.className = 'siempre';
+    var precio = siempre.reduce(function(a, x) { return a + (x.precio || 0); }, 0);
+    bs.innerHTML = '<b>⭐ ' + esc(siempre.map(function(x) { return x.nombre; }).join(SEPARADOR_COMBO)) + '</b>' +
+      '<small>Lo de la última vez · ' + pesosExacto(precio) + '</small>';
+    bs.onclick = function() { ahElegir(siempre.map(function(x) { return x.nombre; }), bs, false); };
+    box.appendChild(bs);
+  }
+
   lista.forEach(function(sv) {
     var b = document.createElement('button');
     b.type = 'button';
     b.innerHTML = '<b>' + esc(sv.nombre) + '</b><small>' + pesosExacto(sv.precio || 0) +
       (sv.duracion ? ' · ' + duracionCorta(sv.duracion) : '') + '</small>';
-    b.onclick = function() { ahElegir(sv.nombre, b, false); };
+    b.onclick = function() { ahElegir([sv.nombre], b, false); };
     box.appendChild(b);
   });
 }
 
-function ahElegir(nombre, btn, forzar) {
+/** Servicios de la última visita del cliente elegido (si siguen en el catálogo de este barbero). */
+function ahServiciosDeSiempre(lista) {
+  if (!ahCliente || !ahCliente.servicio) return [];
+  var partes = String(ahCliente.servicio).split(SEPARADOR_COMBO).map(function(n) { return n.trim(); });
+  var hallados = partes.map(function(n) { return lista.filter(function(x) { return x.nombre === n; })[0]; });
+  return hallados.every(Boolean) ? hallados : [];
+}
+
+function ahMostrarSugerencias() {
+  var input = document.getElementById('ah-cliente');
+  var box = document.getElementById('ah-sug');
+  if (ahCliente && input.value !== ahCliente.nombre) {   // escribió otra cosa: ya no es ese cliente
+    ahCliente = null;
+    document.getElementById('ah-cliente-info').hidden = true;
+    if (ahBarbero) ahPintarServicios();
+  }
+  var lista = buscarClientes(input.value);
+  if (!lista.length) { box.hidden = true; return; }
+  box.innerHTML = lista.map(function(c) {
+    var i = clientesDir.indexOf(c);
+    var sub = c.visitas + (c.visitas === 1 ? ' visita' : ' visitas') + (c.servicio ? ' · ' + c.servicio : '');
+    return '<div class="sug-item" onmousedown="event.preventDefault()" onclick="ahElegirCliente(' + i + ')">' +
+      '<b>' + esc(c.nombre) + '</b><small>' + esc(sub) + '</small></div>';
+  }).join('');
+  box.hidden = false;
+}
+
+function ahElegirCliente(i) {
+  var c = clientesDir[i];
+  if (!c) return;
+  ahCliente = c;
+  document.getElementById('ah-cliente').value = c.nombre;
+  document.getElementById('ah-sug').hidden = true;
+  var info = document.getElementById('ah-cliente-info');
+  info.textContent = '✓ ' + c.visitas + (c.visitas === 1 ? ' visita' : ' visitas') +
+    (c.servicio ? ' · la última vez: ' + c.servicio + (c.barbero ? ' con ' + c.barbero : '') : '');
+  info.hidden = false;
+  if (ahBarbero) ahPintarServicios();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var input = document.getElementById('ah-cliente');
+  if (!input) return;
+  input.addEventListener('input', ahMostrarSugerencias);
+  input.addEventListener('focus', function() { if (input.value) ahMostrarSugerencias(); });
+  input.addEventListener('blur', function() { setTimeout(function() { document.getElementById('ah-sug').hidden = true; }, 150); });
+});
+
+function ahElegir(nombres, btn, forzar) {
   if (ahOcupado && !forzar) return;
   ahOcupado = true;
   var errBox = document.getElementById('ah-error');
@@ -3525,7 +3617,9 @@ function ahElegir(nombre, btn, forzar) {
   botones.forEach(function(x) { x.disabled = true; });
   btn.innerHTML = '<b>Iniciando…</b>';
   var cliente = document.getElementById('ah-cliente').value.trim();
+  var telefono = (ahCliente && ahCliente.nombre === cliente) ? ahCliente.telefono : '';
   var barbero = ahBarbero;
+  var nombre = nombres.join(SEPARADOR_COMBO);
   function soltar() {
     ahOcupado = false;
     botones.forEach(function(x) { x.disabled = false; });
@@ -3538,7 +3632,7 @@ function ahElegir(nombre, btn, forzar) {
         var msg = (r && r.error) || 'No se pudo iniciar.';
         if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
         if (r && r.fueraHorario && confirm(msg + '\n\n¿Atender de todos modos?')) {
-          ahElegir(nombre, btn, true);
+          ahElegir(nombres, btn, true);
           return;
         }
         soltar();
@@ -3552,7 +3646,7 @@ function ahElegir(nombre, btn, forzar) {
         agendaCitas.push({
           id: res.id, fecha: res.fecha, hora: res.hora, fin: res.fin, barbero: res.barbero || barbero,
           servicio: res.servicio || nombre, precio: res.precio || 0,
-          cliente: res.nombre || cliente || 'Cliente', telefono: '', notas: res.notas || '',
+          cliente: res.nombre || cliente || 'Cliente', telefono: telefono, notas: res.notas || '',
           estado: 'Confirmada', estadoReal: ''
         });
       }
@@ -3568,7 +3662,8 @@ function ahElegir(nombre, btn, forzar) {
       mostrarError(errBox, 'No se pudo iniciar. Revisa tu conexión (y si quedó creada antes de repetir).');
     })
     .atenderAhoraDashboard(tokenActual, {
-      servicios: [nombre], barbero: barbero, cliente: cliente, forzar: !!forzar, clave: ahClave
+      servicios: nombres, barbero: barbero, cliente: cliente, telefono: telefono,
+      forzar: !!forzar, clave: ahClave
     });
 }
 
@@ -3595,6 +3690,7 @@ function guardarCierre() {
     hasta: hastaActual
   };
   if (cierreTerminoMs) datos.terminoMs = cierreTerminoMs;
+  var barberoCierre = cierreBarbero;
 
   // Solo se mandan si el barbero los cambió: así el backend no reescribe
   // (ni pierde) un servicio viejo que ya no está en Config.
@@ -3642,6 +3738,7 @@ function guardarCierre() {
         return;
       }
       if (datos.estado) rapidoMarcarCerrada(idGuardado, datos.estado);
+      if (datos.estado === 'Atendido' && datos.metodo && barberoCierre) sumarUsoMetodo(barberoCierre, datos.metodo);
       cerrarModal();
       citasCargadas = false;
       calInvalidate();
