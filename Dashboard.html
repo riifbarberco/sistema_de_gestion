@@ -942,6 +942,8 @@
   .ah-servicios button b { display: block; font-size: 15px; }
   .ah-servicios button small { display: block; font-size: 12px; color: var(--text-muted); margin-top: 4px; }
   .ah-servicios button:disabled { opacity: .5; }
+  .ah-servicios button.on { border-color: var(--green); background: rgba(76,175,122,0.18); }
+  .ah-servicios button.on b::before { content: '✓ '; color: var(--green); }
   .ah-servicios button.siempre { grid-column: 1 / -1; border-color: var(--gold); background: rgba(201,168,76,0.12); }
   .mr-serv-linea { display: flex; align-items: center; justify-content: space-between; gap: 10px;
     background: var(--surface2); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
@@ -1287,7 +1289,7 @@
   <div class="modal-hoja">
     <div class="modal-agarre"></div>
     <h3>Atender ahora</h3>
-    <div class="modal-sub">Toca el servicio y arranca el cronómetro.</div>
+    <div class="modal-sub">Marca lo que se va a hacer y dale ▶ Iniciar.</div>
 
     <div class="modal-error" id="ah-error"></div>
 
@@ -1302,9 +1304,10 @@
       <div class="cliente-conocido" id="ah-cliente-info" hidden></div>
     </div>
     <div class="campo">
-      <label>Servicio</label>
+      <label>Servicios <span style="text-transform:none;letter-spacing:0;">(marca uno o varios)</span></label>
       <div class="ah-servicios" id="ah-servicios"></div>
     </div>
+    <button class="btn-grande btn-iniciar" id="ah-iniciar" hidden onclick="ahIniciarSeleccion()">▶ Iniciar</button>
     <button class="btn-logout" style="width:100%;margin-top:6px;padding:12px;" onclick="cerrarAhora()">Cancelar</button>
   </div>
 </div>
@@ -3479,6 +3482,8 @@ var ahBarbero = '';
 var ahClave   = '';
 var ahOcupado = false;
 var ahCliente = null;   // cliente elegido de las sugerencias (nombre, teléfono, último servicio)
+var ahSel     = [];     // servicios marcados (objetos del catálogo), en el orden en que se tocaron
+var ahSelDe   = '';     // barbero de esa selección (si cambia el barbero, se desmarca todo)
 
 function abrirAhora() {
   if (!formCita) {
@@ -3490,6 +3495,7 @@ function abrirAhora() {
   }
   ahClave = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   ahOcupado = false;
+  ahSel = []; ahSelDe = '';
   limpiarError(document.getElementById('ah-error'));
   document.getElementById('ah-cliente').value = '';
   ahCliente = null;
@@ -3528,6 +3534,7 @@ function ahPintarServicios() {
   var box = document.getElementById('ah-servicios');
   if (!ahBarbero) {
     box.innerHTML = '<div class="serv-resumen">Primero toca quién atiende.</div>';
+    document.getElementById('ah-iniciar').hidden = true;
     return;
   }
   var uso = usoServicios(ahBarbero);
@@ -3549,14 +3556,39 @@ function ahPintarServicios() {
     box.appendChild(bs);
   }
 
+  if (ahSelDe !== ahBarbero) { ahSel = []; ahSelDe = ahBarbero; }
+  var marcado = function(sv) { return ahSel.some(function(x) { return x.nombre === sv.nombre; }); };
   lista.forEach(function(sv) {
     var b = document.createElement('button');
     b.type = 'button';
+    b.className = marcado(sv) ? 'on' : '';
     b.innerHTML = '<b>' + esc(sv.nombre) + '</b><small>' + pesosExacto(sv.precio || 0) +
       (sv.duracion ? ' · ' + duracionCorta(sv.duracion) : '') + '</small>';
-    b.onclick = function() { ahElegir([sv.nombre], b, false); };
+    // Un toque marca / desmarca; arranca el botón "▶ Iniciar" de abajo.
+    b.onclick = function() {
+      if (marcado(sv)) ahSel = ahSel.filter(function(x) { return x.nombre !== sv.nombre; });
+      else ahSel.push(sv);
+      b.className = marcado(sv) ? 'on' : '';
+      ahPintarIniciar();
+    };
     box.appendChild(b);
   });
+  ahPintarIniciar();
+}
+
+/** Botón de abajo: "▶ Iniciar · Corte + Barba · $45.000" (oculto si no hay nada marcado). */
+function ahPintarIniciar() {
+  var btn = document.getElementById('ah-iniciar');
+  btn.hidden = !ahSel.length || !ahBarbero;
+  if (btn.hidden) return;
+  var precio = ahSel.reduce(function(a, x) { return a + (x.precio || 0); }, 0);
+  btn.innerHTML = '▶ Iniciar<div style="font-size:13px;font-weight:600;text-transform:none;letter-spacing:0;margin-top:4px;">' +
+    esc(ahSel.map(function(x) { return x.nombre; }).join(SEPARADOR_COMBO)) + ' · ' + pesosExacto(precio) + '</div>';
+}
+
+function ahIniciarSeleccion() {
+  if (!ahSel.length) return;
+  ahElegir(ahSel.map(function(x) { return x.nombre; }), document.getElementById('ah-iniciar'), false);
 }
 
 /** Servicios de la última visita del cliente elegido (si siguen en el catálogo de este barbero). */
@@ -3615,6 +3647,7 @@ function ahElegir(nombres, btn, forzar) {
   var botones = document.querySelectorAll('#ah-servicios button');
   var textoBtn = btn.innerHTML;
   botones.forEach(function(x) { x.disabled = true; });
+  btn.disabled = true;
   btn.innerHTML = '<b>Iniciando…</b>';
   var cliente = document.getElementById('ah-cliente').value.trim();
   var telefono = (ahCliente && ahCliente.nombre === cliente) ? ahCliente.telefono : '';
@@ -3623,6 +3656,7 @@ function ahElegir(nombres, btn, forzar) {
   function soltar() {
     ahOcupado = false;
     botones.forEach(function(x) { x.disabled = false; });
+    btn.disabled = false;
     btn.innerHTML = textoBtn;
   }
 
