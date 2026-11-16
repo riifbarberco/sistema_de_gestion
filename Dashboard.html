@@ -250,6 +250,8 @@
     letter-spacing: 1px;
   }
   .kpi.green .num { color: var(--green); }
+  .kpi .sub { font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.4; }
+  .kpi .sub b { color: var(--text); font-weight: 700; }
   .kpi.blue .num { color: var(--blue); }
 
 
@@ -1058,17 +1060,13 @@
       <div class="kpi blue">
         <div class="num" id="k-total">—</div>
         <div class="lbl">Total cobrado</div>
+        <div class="sub" id="k-total-bold"></div>
       </div>
       <div class="kpi barberia" id="kpi-barberia" style="display:none;">
         <div class="num" id="k-barberia">—</div>
         <div class="lbl">Pago barbería</div>
+        <div class="sub" id="k-barberia-bold"></div>
       </div>
-    </div>
-
-    <!-- Pagado por Bold (sin propinas). El barbero ve lo suyo; el dueño, todo. -->
-    <div class="section" id="sec-metodos" hidden>
-      <div class="section-title">Pagado por Bold</div>
-      <div id="metodos-area"></div>
     </div>
 
     <!-- Pago por trabajador (solo dueño): barberos y tatuadores por separado -->
@@ -2196,8 +2194,8 @@ function renderDashboard(d) {
                filtroActual === 'anio' ? 'Servicios por mes' : 'Servicios por día';
   document.getElementById('chart-title').textContent = titulo;
 
-  // Recibido por método de pago
-  renderMetodos(d.porMetodo || []);
+  // Bold: debajo de Total cobrado y de Pago barbería
+  renderMetodos(d.porMetodo || [], d.totalBarberia || 0);
 
   // Pago por trabajador (solo el dueño ve a todos)
   renderEquipo(d.porTrabajador || [], d.totalVentas || 0, esDueno);
@@ -2242,18 +2240,30 @@ function pesos(n) {
 var METODO_DESTACADO = 'Bold';
 function esMetodoDestacado(m) { return String(m || '').trim().toLowerCase() === METODO_DESTACADO.toLowerCase(); }
 
-/** Cuántos servicios se pagaron por Bold y por cuánto (servicio + productos, sin propina). */
-function renderMetodos(lista) {
-  var sec = document.getElementById('sec-metodos');
-  sec.hidden = false;
+/**
+ * Bold, sin propinas:
+ *  · bajo "Total cobrado": cuánto de eso se pagó por Bold y en cuántos servicios;
+ *  · bajo "Pago barbería": cuánto ya está en la cuenta (llegó por Bold) y
+ *    cuánto falta entregar — o, si Bold trajo más que la parte de la
+ *    barbería, cuánto se le debe al barbero.
+ */
+function renderMetodos(lista, pagoBarberia) {
   var m = lista.filter(function(x) { return esMetodoDestacado(x.metodo); })[0] || { total: 0, n: 0, ventas: 0 };
-  var html = '<div class="eq-row">' +
-    '<div><div class="eq-nom">' + m.n + (m.n === 1 ? ' servicio' : ' servicios') + '</div>' +
-      '<div class="eq-sub">' + (m.ventas ? '+ ' + m.ventas + (m.ventas === 1 ? ' venta' : ' ventas') + ' de productos · ' : '') +
-      'sin propinas</div></div>' +
-    '<div class="eq-pago"><b>' + pesosExacto(m.total) + '</b></div>' +
-  '</div>';
-  document.getElementById('metodos-area').innerHTML = html;
+  var bajoTotal = document.getElementById('k-total-bold');
+  var bajoBarb  = document.getElementById('k-barberia-bold');
+  if (!m.total) { bajoTotal.innerHTML = ''; bajoBarb.innerHTML = ''; return; }
+
+  bajoTotal.innerHTML = esc(METODO_DESTACADO) + ': <b>' + pesosExacto(m.total) + '</b><br>' +
+    m.n + (m.n === 1 ? ' servicio' : ' servicios') +
+    (m.ventas ? ' + ' + m.ventas + (m.ventas === 1 ? ' venta' : ' ventas') : '');
+
+  var dueno = (rolActual === 'Dueño');
+  var enCuenta = Math.min(m.total, pagoBarberia);
+  var falta = Math.round(pagoBarberia - m.total);
+  bajoBarb.innerHTML = 'Ya en cuenta: <b>' + pesosExacto(Math.round(enCuenta)) + '</b><br>' +
+    (falta > 0 ? (dueno ? 'Falta que entreguen: ' : 'Falta entregar: ') + '<b>' + pesosExacto(falta) + '</b>'
+     : falta < 0 ? (dueno ? 'A favor de barberos: ' : 'A tu favor: ') + '<b>' + pesosExacto(-falta) + '</b>'
+     : 'Nada pendiente');
 }
 
 /** "Bold: 6 servicios · $185.000" de un trabajador ('' si no tuvo ninguno). */
