@@ -1392,7 +1392,6 @@
     <div class="campo"><label>Nota</label><textarea id="ed-notas"></textarea></div>
 
     <button class="btn-primary" id="ed-guardar" onclick="guardarEdicion()">Guardar cambios</button>
-    <button class="btn-sec" onclick="cerrarDesdeEdicion()">💰 Cerrar / cobrar este servicio</button>
     <button class="btn-sec" id="ed-avisar" onclick="avisarBarberoCita()">Avisar al barbero por WhatsApp</button>
     <button class="btn-sec" onclick="marcarNoShow()">🚫 No vino (no show)</button>
     <button class="btn-peligro" onclick="cancelarCitaActual()">Cancelar (el cliente avisó)</button>
@@ -4379,13 +4378,6 @@ function guardarEdicion() {
       mostrarError(errBox, 'No se pudo guardar. Revisa tu conexión.');
     })
     .modificarCitaDashboard(tokenActual, editId, cambios);
-}
-
-function cerrarDesdeEdicion() {
-  if (!editId) return;
-  var id = editId;
-  cerrarEditar();
-  abrirCierrePorId(id);
 }
 
 /**
