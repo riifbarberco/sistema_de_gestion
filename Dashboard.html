@@ -2236,9 +2236,10 @@ function pesos(n) {
  * cada uno con lo que cobró, lo que se le paga y lo que queda para la barbería.
  * Solo cuenta servicios atendidos del período elegido.
  */
-// Método de pago que se muestra aparte en el Resumen (tal como está en Config).
+// Método de pago que se muestra aparte en el Resumen.
 var METODO_DESTACADO = 'Bold';
-function esMetodoDestacado(m) { return String(m || '').trim().toLowerCase() === METODO_DESTACADO.toLowerCase(); }
+// Basta con que el nombre lo contenga: en Config se llama "Bold / Datáfono".
+function esMetodoDestacado(m) { return String(m || '').toLowerCase().indexOf(METODO_DESTACADO.toLowerCase()) >= 0; }
 
 /**
  * Bold, sin propinas:
@@ -2248,7 +2249,10 @@ function esMetodoDestacado(m) { return String(m || '').trim().toLowerCase() === 
  *    barbería, cuánto se le debe al barbero.
  */
 function renderMetodos(lista, pagoBarberia) {
-  var m = lista.filter(function(x) { return esMetodoDestacado(x.metodo); })[0] || { total: 0, n: 0, ventas: 0 };
+  var m = lista.filter(function(x) { return esMetodoDestacado(x.metodo); })
+    .reduce(function(a, x) {
+      return { total: a.total + x.total, n: a.n + x.n, ventas: a.ventas + (x.ventas || 0) };
+    }, { total: 0, n: 0, ventas: 0 });
   var bajoTotal = document.getElementById('k-total-bold');
   var bajoBarb  = document.getElementById('k-barberia-bold');
   if (!m.total) { bajoTotal.innerHTML = ''; bajoBarb.innerHTML = ''; return; }
@@ -2268,9 +2272,10 @@ function renderMetodos(lista, pagoBarberia) {
 
 /** "Bold: 6 servicios · $185.000" de un trabajador ('' si no tuvo ninguno). */
 function textoMetodos(metodos) {
-  var k = Object.keys(metodos || {}).filter(esMetodoDestacado)[0];
-  if (!k) return '';
-  var m = metodos[k];
+  var m = Object.keys(metodos || {}).filter(esMetodoDestacado)
+    .reduce(function(a, k) { return { total: a.total + metodos[k].total, n: a.n + metodos[k].n }; },
+            { total: 0, n: 0 });
+  if (!m.n && !m.total) return '';
   return esc(METODO_DESTACADO) + ': ' + m.n + (m.n === 1 ? ' servicio' : ' servicios') +
     ' · ' + pesosExacto(Math.round(m.total));
 }
