@@ -906,6 +906,26 @@
   .cal-block .crono { display: block; font-size: 10px; }
   .cal-block.compacta .crono { display: inline; margin-left: 4px; }
 
+  /* ──── AVISO GRANDE: INICIAR / TERMINAR en el centro de la pantalla ──── */
+  .aviso-grande {
+    position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.75);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .aviso-grande[hidden] { display: none; }
+  .ag-caja {
+    width: 100%; max-width: 420px; background: var(--surface); border-radius: 18px;
+    padding: 26px 20px 16px; text-align: center; border: 2px solid var(--green);
+    box-shadow: var(--shadow); animation: ag-entra .25s ease;
+  }
+  .ag-caja.terminar { border-color: var(--red); }
+  @keyframes ag-entra { from { transform: scale(.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .ag-titulo { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; }
+  .ag-cliente { font-size: 26px; font-weight: 800; margin: 10px 0 4px; }
+  .ag-serv { font-size: 15px; color: var(--text-muted); margin-bottom: 18px; }
+  .ag-caja .btn-grande { font-size: 26px; padding: 26px 14px; }
+  .ag-links { display: flex; justify-content: center; gap: 18px; }
+  .ag-links .mr-link { width: auto; }
+
   /* ──── MI DÍA ──── */
   .hoy-titulo {
     font-size: 12px; color: var(--gold); text-transform: uppercase; letter-spacing: 1px;
@@ -1175,6 +1195,20 @@
       <div id="inv-area"><div class="spinner"></div></div>
     </section>
 
+  </div>
+</div>
+
+<!-- AVISO GRANDE: es hora de INICIAR o de TERMINAR (solo las citas propias) -->
+<div class="aviso-grande" id="aviso-grande" hidden>
+  <div class="ag-caja" id="ag-caja">
+    <div class="ag-titulo" id="ag-titulo"></div>
+    <div class="ag-cliente" id="ag-cliente"></div>
+    <div class="ag-serv" id="ag-serv"></div>
+    <button class="btn-grande" id="ag-boton" onclick="avisoAccion()"></button>
+    <div class="ag-links">
+      <button class="mr-link" id="ag-novino" onclick="avisoNoVino()">No vino</button>
+      <button class="mr-link" onclick="avisoLuego()">Ahora no</button>
+    </div>
   </div>
 </div>
 
@@ -1737,6 +1771,7 @@ function entrar() {
 }
 
 function salir() {
+  try { avisoCerrar(); } catch (e) {}
   sessionDel('barbero'); sessionDel('token'); sessionDel('rol');
   cacheBorrarTodo();
   formulariosPrecargados = false; opcionesCierre = null; formCita = null;
@@ -3441,6 +3476,106 @@ function decidirDescuento(llave, accion) {
     .decidirDescuentoDashboard(tokenActual, llave, accion);
 }
 
+// ─────────────────────────────────────────────
+//  AVISO GRANDE — "▶ INICIAR" / "■ TERMINAR" en el centro de la pantalla
+// ─────────────────────────────────────────────
+// Mismo criterio que el recordatorio de Telegram: 5 min después de la hora de
+// la cita sin iniciar, o 5 min después de que debía terminar el servicio.
+// Solo para las citas de quien está conectado. "Ahora no" lo calla 10 min.
+var AVISO_INICIAR_MIN  = 5;
+var AVISO_TERMINAR_MIN = 5;
+var avisoCita   = null;
+var avisoTipo   = '';    // 'iniciar' | 'terminar'
+var avisoCalla  = {};    // { idCita+tipo: ms hasta cuándo no se muestra }
+var agendaCargadaEn = 0;
+
+function minutosAhora() {
+  var d = new Date(ahoraServidor());
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+function hayHojaAbierta() {
+  return !!document.querySelector('.modal-fondo.abierto');
+}
+
+function avisoRevisar() {
+  if (!tokenActual || document.getElementById('dashboard-screen').style.display === 'none') return;
+  // La agenda se refresca sola cada 5 min (citas nuevas desde la web, etc.).
+  if (agendaRecibida && Date.now() - agendaCargadaEn > 300000 && !hayHojaAbierta()) cargarAgenda();
+  if (!agendaRecibida && !calDatos) return;
+  if (!document.getElementById('aviso-grande').hidden || hayHojaAbierta()) return;
+
+  var ahora = minutosAhora(), ms = Date.now();
+  var mias = citasHoy().filter(function(c) {
+    return c.barbero === barberoActual && ESTADOS_CERRADOS.indexOf(c.estadoReal || '') < 0;
+  });
+  var callado = function(c, t) { return (avisoCalla[c.id + t] || 0) > ms; };
+  var durDe = function(c) {
+    var ini = calHoraAMin(c.hora), fin = calHoraAMin(c.fin);
+    return (fin !== null && ini !== null && fin > ini) ? fin - ini : (Number(c.duracion) || 30);
+  };
+
+  // Primero: lo que ya debía terminar
+  var term = mias.filter(function(c) {
+    var ini = enCurso[c.id];
+    return ini && !callado(c, 't') && (ahoraServidor() - ini) / 60000 >= durDe(c) + AVISO_TERMINAR_MIN;
+  })[0];
+  if (term) { avisoMostrar(term, 'terminar'); return; }
+
+  // Después: lo que ya debía empezar
+  var inic = mias.filter(function(c) {
+    if (enCurso[c.id] || callado(c, 'i')) return false;
+    var ini = calHoraAMin(c.hora);
+    return ini !== null && ahora >= ini + AVISO_INICIAR_MIN && ahora <= ini + durDe(c) + 120;
+  })[0];
+  if (inic) avisoMostrar(inic, 'iniciar');
+}
+
+function avisoMostrar(c, tipo) {
+  avisoCita = c; avisoTipo = tipo;
+  var caja = document.getElementById('ag-caja');
+  caja.className = 'ag-caja' + (tipo === 'terminar' ? ' terminar' : '');
+  document.getElementById('ag-titulo').textContent = tipo === 'terminar'
+    ? '⏱ Ya debía terminar · lleva ' + minutosDesde(enCurso[c.id]) + ' min'
+    : '⏰ Cita de las ' + c.hora + ' · sin iniciar';
+  document.getElementById('ag-cliente').textContent = c.cliente || 'Cliente';
+  document.getElementById('ag-serv').textContent = c.servicio || '';
+  var b = document.getElementById('ag-boton');
+  b.className = 'btn-grande ' + (tipo === 'terminar' ? 'btn-terminar' : 'btn-iniciar');
+  b.textContent = tipo === 'terminar' ? '■ TERMINAR' : '▶ INICIAR';
+  document.getElementById('ag-novino').hidden = (tipo === 'terminar');
+  document.getElementById('aviso-grande').hidden = false;
+  try { if (navigator.vibrate) navigator.vibrate(200); } catch (e) {}
+}
+
+function avisoCerrar() {
+  document.getElementById('aviso-grande').hidden = true;
+  avisoCita = null;
+}
+
+function avisoAccion() {
+  var c = avisoCita, tipo = avisoTipo;
+  avisoCerrar();
+  if (!c) return;
+  if (tipo === 'terminar') hoyTerminar(c.id);
+  else iniciarDirecto(c);
+}
+
+function avisoNoVino() {
+  var c = avisoCita;
+  avisoCerrar();
+  if (!c) return;
+  abrirRapido(c);
+  rapidoNoVino();
+}
+
+function avisoLuego() {
+  if (avisoCita) avisoCalla[avisoCita.id + (avisoTipo === 'terminar' ? 't' : 'i')] = Date.now() + 10 * 60000;
+  avisoCerrar();
+}
+
+setInterval(avisoRevisar, 30000);
+
 /** Próxima cita pendiente de hoy del mismo barbero (sin iniciar ni cerrar). */
 function siguienteDe(c) {
   return citasHoy().filter(function(x) {
@@ -3946,10 +4081,12 @@ function cargarAgenda() {
       citasCargadas = true;
       agendaCitas = (r && r.citas) || [];
       agendaRecibida = true;
+      agendaCargadaEn = Date.now();
       absorberEnCurso(r);
       renderAgenda();
       renderMiDia();
       precargarFormularios();
+      setTimeout(avisoRevisar, 500);
     })
     .withFailureHandler(function(e) {
       if (!agendaRecibida) document.getElementById('hoy-area').innerHTML =
