@@ -1393,7 +1393,6 @@
 
     <button class="btn-primary" id="ed-guardar" onclick="guardarEdicion()">Guardar cambios</button>
     <button class="btn-sec" id="ed-avisar" onclick="avisarBarberoCita()">Avisar al barbero por WhatsApp</button>
-    <button class="btn-sec" onclick="marcarNoShow()">🚫 No vino (no show)</button>
     <button class="btn-peligro" onclick="cancelarCitaActual()">Cancelar (el cliente avisó)</button>
     <button class="btn-peligro solo-dueno" style="margin-top:10px;" onclick="eliminarCita(editId)">🗑 Borrar definitivamente</button>
     <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarEditar()">Cerrar</button>
@@ -4411,29 +4410,6 @@ function eliminarCita(id) {
  * No show: la cita queda en el Registro como "No asistió" (sin plata ni
  * comisión), para llevar la cuenta de quién falla. No se borra de la hoja.
  */
-function marcarNoShow() {
-  if (!editId) return;
-  if (!confirm('¿Marcar que el cliente NO VINO?\n\nQueda en la hoja como "No asistió", sin cobro ni comisión.')) return;
-  var id = editId;
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (!r || !r.ok) {
-        var msg = (r && r.error) || 'No se pudo marcar.';
-        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
-        mostrarError('ed-error', msg);
-        return;
-      }
-      cerrarEditar();
-      calInvalidate();
-      cargarAgenda();
-      if (tabActual === 'resumen') refrescar();
-    })
-    .withFailureHandler(function() { mostrarError('ed-error', 'No se pudo marcar. Revisa tu conexión.'); })
-    .cerrarServicioDashboard(tokenActual, id, {
-      estado: 'No asistió', propina: 0, descuento: 0, productos: {}
-    });
-}
-
 function cancelarCitaActual() {
   if (!editId) return;
   if (!confirm('¿Cancelar esta cita? Se libera el cupo y se le avisa al barbero.')) return;
