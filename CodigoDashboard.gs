@@ -786,6 +786,29 @@ function cancelarInicioDashboard(token, id) {
   }
 }
 
+/**
+ * "Atender ahora": cliente sin cita. Crea la cita a la hora actual (mismo
+ * camino que crearCitaDashboard, con sus validaciones y anti-duplicado) y
+ * arranca el cronómetro de una vez.
+ * d = { servicios:[nombre,...], barbero, cliente, forzar, clave }
+ */
+function atenderAhoraDashboard(token, d) {
+  d = d || {};
+  var ahora = Utilities.formatDate(new Date(), TZ, 'HH:mm');
+  var r = crearCitaDashboard(token, {
+    modo: 'ahora', servicios: d.servicios, barbero: d.barbero,
+    fecha: hoyISO_(), hora: ahora,
+    cliente: d.cliente, telefono: d.telefono, notas: 'Atendido sin cita',
+    forzar: !!d.forzar, clave: d.clave
+  });
+  if (!r || !r.ok || !r.reserva || !r.reserva.id) return r;
+
+  var ini = iniciarServicioDashboard(token, r.reserva.id);
+  r.inicio = ini && ini.ok ? ini.inicio : 0;
+  r.ahora = Date.now();
+  return r;
+}
+
 /** Para que el dashboard sepa qué citas están en curso (al abrir o recargar). */
 function getEnCursoDashboard(token) {
   try { _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
