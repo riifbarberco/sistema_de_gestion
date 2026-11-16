@@ -864,6 +864,45 @@
   }
   .cal-month-badge.baja { color: var(--blue); }
   .cal-month-badge.alta { color: var(--gold); }
+
+  /* ──── ATENCIÓN RÁPIDA: Iniciar → cronómetro → Terminar ──── */
+  .btn-grande {
+    width: 100%; border: none; border-radius: 14px; padding: 22px 14px;
+    font-size: 20px; font-weight: 800; letter-spacing: 1px; cursor: pointer;
+    text-transform: uppercase; margin-top: 6px;
+  }
+  .btn-grande:disabled { opacity: .5; cursor: wait; }
+  .btn-iniciar { background: var(--green); color: #000; }
+  .btn-terminar { background: var(--red); color: #fff; }
+  .mr-acciones { display: flex; gap: 8px; margin-top: 12px; }
+  .mr-acciones .btn-logout { flex: 1; padding: 12px; }
+  .mr-link {
+    display: block; width: 100%; background: none; border: none; cursor: pointer;
+    color: var(--text-muted); font-size: 13px; text-decoration: underline;
+    padding: 14px 0 4px;
+  }
+  .mr-reloj {
+    font-size: 56px; font-weight: 800; text-align: center; letter-spacing: 2px;
+    font-variant-numeric: tabular-nums; color: var(--green); margin: 6px 0 2px;
+  }
+  .mr-reloj-sub { text-align: center; font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
+  .mr-duro {
+    text-align: center; font-size: 14px; color: var(--text); margin: 2px 0 14px;
+    background: var(--surface2); border-radius: 8px; padding: 10px;
+  }
+  .mr-metodos { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+  .mr-metodos button {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+    padding: 16px 8px; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  .mr-metodos button.on { background: var(--gold); border-color: var(--gold); color: #000; }
+  .cal-block.st-en-curso {
+    border-left-color: var(--green); background: rgba(76,175,122,0.28);
+    box-shadow: inset 0 0 0 1px var(--green);
+  }
+  .crono { font-style: normal; font-weight: 700; color: var(--green); white-space: nowrap; }
+  .cal-block .crono { display: block; font-size: 10px; }
+  .cal-block.compacta .crono { display: inline; margin-left: 4px; }
 </style>
 </head>
 <body>
@@ -1128,6 +1167,50 @@
     <button class="btn-primary" id="mc-guardar" onclick="guardarCierre()">Guardar cierre</button>
     <button class="btn-peligro solo-dueno" style="margin-top:10px;" onclick="eliminarCita(cierreCitaId)">🗑 Borrar definitivamente</button>
     <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- HOJA MODAL: atención rápida (Iniciar → cronómetro → Terminar y cobrar) -->
+<div class="modal-fondo" id="modal-rapido" onclick="if(event.target===this)cerrarRapido()">
+  <div class="modal-hoja">
+    <div class="modal-agarre"></div>
+    <h3 id="mr-cliente">Cliente</h3>
+    <div class="modal-sub" id="mr-sub"></div>
+
+    <div class="modal-error" id="mr-error"></div>
+
+    <!-- 1. Antes de empezar -->
+    <div id="mr-paso-iniciar">
+      <button class="btn-grande btn-iniciar" id="mr-iniciar" onclick="rapidoIniciar()">▶ Iniciar</button>
+      <div class="mr-acciones">
+        <button class="btn-logout" id="mr-novino" onclick="rapidoNoVino()">No vino</button>
+        <button class="btn-logout" onclick="rapidoEditar()">Editar cita</button>
+      </div>
+    </div>
+
+    <!-- 2. En curso -->
+    <div id="mr-paso-curso" hidden>
+      <div class="mr-reloj" id="mr-reloj">00:00</div>
+      <div class="mr-reloj-sub" id="mr-reloj-sub"></div>
+      <button class="btn-grande btn-terminar" onclick="rapidoTerminar()">■ Terminar</button>
+      <button class="mr-link" id="mr-deshacer" onclick="rapidoDeshacer()">Lo inicié por error</button>
+    </div>
+
+    <!-- 3. Cobrar -->
+    <div id="mr-paso-cobro" hidden>
+      <div class="mr-duro" id="mr-duro"></div>
+      <div class="campo">
+        <label>¿Cómo pagó?</label>
+        <div class="mr-metodos" id="mr-metodos"></div>
+      </div>
+      <div class="campo" id="mr-productos"></div>
+      <div class="campo">
+        <label>Propina <span style="text-transform:none;letter-spacing:0;">(opcional)</span></label>
+        <input id="mr-propina" type="number" min="0" step="500" placeholder="0" inputmode="numeric">
+      </div>
+      <button class="btn-primary" id="mr-listo" onclick="rapidoListo()">✓ Listo</button>
+      <button class="mr-link" onclick="rapidoMasOpciones()">Más opciones (descuento, cambiar servicios…)</button>
+    </div>
   </div>
 </div>
 
@@ -2165,7 +2248,7 @@ function renderLista() {
     var lineaSrv = esc(s.servicio) + (s.barbero ? ' · ' + esc(s.barbero) : '');
     var bebidas = textoBebidas(s.productos);
     html += '<div class="servicio-row' + tocable + '"' +
-             (s.id ? ' onclick="abrirCierre(' + i + ')"' : '') + '>' +
+             (s.id ? ' onclick="resumenTocar(' + i + ')"' : '') + '>' +
       '<div class="srv-left">' +
         '<div class="srv-fecha">' + fmtFecha(s.fecha) + ' · ' + esc(s.hora) + ' <span class="badge ' + badgeClass + '">' + esc(s.venta ? 'Venta' : s.estado) + '</span></div>' +
         '<div class="srv-nombre">' + esc(s.cliente) + '</div>' +
@@ -2501,7 +2584,7 @@ function pintarCierre(s) {
   document.getElementById('mc-valor').value = esTat ? (s.valor || s.precio || '') : '';
   document.getElementById('mc-campo-dur').hidden = !esTat;
   if (esTat) {
-    var durIni = Number(s.duracion) || cierreServicios.reduce(function(a, x) { return a + x.duracion; }, 0) || 120;
+    var durIni = cierreDurCrono || Number(s.duracion) || cierreServicios.reduce(function(a, x) { return a + x.duracion; }, 0) || 120;
     var selH = document.getElementById('mc-dur-h'), selM = document.getElementById('mc-dur-m');
     selH.innerHTML = ''; selM.innerHTML = '';
     for (var h = 0; h <= 12; h++) {
@@ -2699,10 +2782,350 @@ function cerrarModal() {
   cierreIdx = -1;
   cierreCitaId = '';
   cierrePorIdEnCurso = '';
+  cierreDurCrono = 0;
+  cierreTerminoMs = 0;
+}
+
+// ─────────────────────────────────────────────
+//  ATENCIÓN RÁPIDA — Iniciar → cronómetro → Terminar y cobrar
+// ─────────────────────────────────────────────
+// Tocar una cita de hoy que sigue pendiente abre una hoja corta: "Iniciar"
+// arranca el cronómetro (la hora queda en el servidor, así sobrevive a
+// recargas y se ve desde otro celular); "Terminar" pasa a cobrar: método de
+// pago con un toque, productos si consumió algo, y Listo. Los minutos reales
+// quedan en el Registro para medir cuánto dura cada servicio.
+var enCurso        = {};   // { idCita: ms de inicio (hora del servidor) }
+var relojDesfase   = 0;    // hora del servidor − hora de este celular (ms)
+var rapidoCita     = null; // cita abierta en la hoja rápida
+var rapidoMetodo   = '';
+var rapidoFinMs    = 0;    // cuándo se tocó "Terminar" (hora del servidor)
+var rapidoTic      = null; // intervalo del reloj grande
+var cierreDurCrono = 0;    // tatuaje: minutos del cronómetro para prellenar el cierre completo
+var cierreTerminoMs = 0;   // cierre completo abierto desde "Terminar": fin del cronómetro
+var ESTADOS_CERRADOS = ['Atendido', 'No asistió', 'Cancelado'];
+
+function ahoraServidor() { return Date.now() + relojDesfase; }
+
+/** Toma el mapa de servicios en curso que mandó el servidor (agenda/calendario). */
+function absorberEnCurso(r) {
+  if (!r || !r.enCurso) return;
+  enCurso = r.enCurso;
+  if (r.ahora) relojDesfase = r.ahora - Date.now();
+}
+
+function minutosDesde(ms) { return Math.max(0, Math.floor((ahoraServidor() - ms) / 60000)); }
+
+function relojTexto(ms) {
+  var seg = Math.max(0, Math.floor((ahoraServidor() - ms) / 1000));
+  var h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60), s = seg % 60;
+  function d(n) { return ('0' + n).slice(-2); }
+  return (h ? h + ':' + d(m) : d(m)) + ':' + d(s);
+}
+
+function horaDeMs(ms) {
+  var d = new Date(ms - relojDesfase);
+  return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+}
+
+/** Etiqueta "⏱ 12 min" para el calendario y la agenda. */
+function cronoHtml(id) {
+  var ini = enCurso[id];
+  if (!ini) return '';
+  return '<em class="crono" data-inicio="' + ini + '">⏱ ' + minutosDesde(ini) + ' min</em>';
+}
+
+// Los "⏱ N min" que estén a la vista se actualizan cada 30 s.
+setInterval(function() {
+  document.querySelectorAll('.crono[data-inicio]').forEach(function(el) {
+    el.textContent = '⏱ ' + minutosDesde(Number(el.getAttribute('data-inicio'))) + ' min';
+  });
+}, 30000);
+
+/** ¿Se atiende con la hoja rápida? De hoy, sin cerrar, y propia (o el dueño). */
+function citaParaRapido(c) {
+  if (!c || !c.id || c.fecha !== isoHoy()) return false;
+  if (c.estadoReserva === 'Cancelada') return false;
+  if (ESTADOS_CERRADOS.indexOf(c.estadoReal || '') >= 0) return false;
+  return rolActual === 'Dueño' || c.barbero === barberoActual;
+}
+
+/** Tocar una cita: hoja rápida si aplica; si no, `otro()` (lo de siempre). */
+function tocarCita(c, otro) {
+  if (citaParaRapido(c)) abrirRapido(c);
+  else otro();
+}
+
+function agendaTocar(id) {
+  var c = agendaCitas.filter(function(x) { return x.id === id; })[0];
+  tocarCita(c, function() { abrirEditar(id); });
+}
+
+function resumenTocar(i) {
+  var s = todosServicios[i];
+  if (!s || s.venta) { abrirCierre(i); return; }
+  tocarCita({
+    id: s.id, fecha: s.fecha, hora: s.hora, cliente: s.cliente, servicio: s.servicio,
+    barbero: s.barbero || (rolActual === 'Dueño' ? '' : barberoActual),
+    estadoReal: (s.estado === 'Pendiente') ? '' : s.estado
+  }, function() { abrirCierre(i); });
+}
+
+function esTatuajeCita(c) {
+  var cat = ((opcionesCierre && opcionesCierre.servicios) || [])
+    .concat((formCita && formCita.servicios) || []);
+  var nombre = String(c.servicio || '').split(SEPARADOR_COMBO)[0].trim();
+  var srv = cat.filter(function(x) { return x.nombre === nombre; })[0];
+  if (srv) return catDe(srv) === CAT_TATUAJES;
+  return catTrabajador(c.barbero) === CAT_TATUAJES;
+}
+
+function abrirRapido(c) {
+  rapidoCita = c; rapidoMetodo = ''; rapidoFinMs = 0;
+  document.getElementById('mr-cliente').textContent = c.cliente || 'Cliente';
+  document.getElementById('mr-sub').textContent = c.hora + ' · ' + (c.servicio || '') +
+    (rolActual === 'Dueño' && c.barbero ? ' · ' + c.barbero : '');
+  limpiarError(document.getElementById('mr-error'));
+  document.getElementById('mr-iniciar').disabled = false;
+  document.getElementById('mr-novino').disabled = false;
+  rapidoPaso(enCurso[c.id] ? 'curso' : 'iniciar');
+  document.getElementById('modal-rapido').classList.add('abierto');
+  // Métodos y productos se necesitan al cobrar: se traen desde ya, por detrás.
+  if (!opcionesCierre) {
+    google.script.run
+      .withSuccessHandler(function(o) { opcionesCierre = o || OPCIONES_DEFAULT; })
+      .withFailureHandler(function() { opcionesCierre = OPCIONES_DEFAULT; })
+      .getOpcionesCierre();
+  }
+}
+
+function cerrarRapido() {
+  document.getElementById('modal-rapido').classList.remove('abierto');
+  if (rapidoTic) { clearInterval(rapidoTic); rapidoTic = null; }
+  rapidoCita = null;
+}
+
+function rapidoPaso(p) {
+  document.getElementById('mr-paso-iniciar').hidden = (p !== 'iniciar');
+  document.getElementById('mr-paso-curso').hidden = (p !== 'curso');
+  document.getElementById('mr-paso-cobro').hidden = (p !== 'cobro');
+  if (rapidoTic) { clearInterval(rapidoTic); rapidoTic = null; }
+  if (p === 'curso' && rapidoCita) {
+    var ini = enCurso[rapidoCita.id];
+    var pintar = function() {
+      if (!rapidoCita || !enCurso[rapidoCita.id]) return;
+      document.getElementById('mr-reloj').textContent = relojTexto(enCurso[rapidoCita.id]);
+    };
+    document.getElementById('mr-reloj-sub').textContent = 'Empezó a las ' + horaDeMs(ini);
+    pintar();
+    rapidoTic = setInterval(pintar, 1000);
+  }
+}
+
+/** Repinta lo que esté a la vista para que se vea el cambio de una. */
+function rapidoRepintar() {
+  if (tabActual === 'calendario' && calDatos && !calArrastre) calRender();
+  if (citasCargadas && agendaCitas.length) renderAgenda();
+}
+
+function rapidoIniciar() {
+  if (!rapidoCita) return;
+  var c = rapidoCita, id = c.id;
+  var errBox = document.getElementById('mr-error');
+  limpiarError(errBox);
+  // Optimista: el reloj arranca ya; el servidor confirma la hora oficial.
+  enCurso[id] = ahoraServidor();
+  rapidoPaso('curso');
+  rapidoRepintar();
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || !r.ok) {
+        var msg = (r && r.error) || 'No se pudo iniciar.';
+        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
+        delete enCurso[id];
+        rapidoRepintar();
+        if (rapidoCita && rapidoCita.id === id) { rapidoPaso('iniciar'); mostrarError(errBox, msg); }
+        return;
+      }
+      enCurso[id] = r.inicio;
+      if (rapidoCita && rapidoCita.id === id && !document.getElementById('mr-paso-curso').hidden) rapidoPaso('curso');
+      rapidoRepintar();
+    })
+    .withFailureHandler(function() {
+      delete enCurso[id];
+      rapidoRepintar();
+      if (rapidoCita && rapidoCita.id === id) {
+        rapidoPaso('iniciar');
+        mostrarError(errBox, 'No se pudo iniciar. Revisa tu conexión.');
+      }
+    })
+    .iniciarServicioDashboard(tokenActual, id);
+}
+
+function rapidoDeshacer() {
+  if (!rapidoCita) return;
+  var id = rapidoCita.id, ini = enCurso[id];
+  delete enCurso[id];
+  rapidoPaso('iniciar');
+  rapidoRepintar();
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.ok) return;
+      enCurso[id] = ini;
+      rapidoRepintar();
+      alert((r && r.error) || 'No se pudo deshacer el inicio.');
+    })
+    .withFailureHandler(function() {
+      enCurso[id] = ini;
+      rapidoRepintar();
+      alert('No se pudo deshacer el inicio. Revisa tu conexión.');
+    })
+    .cancelarInicioDashboard(tokenActual, id);
+}
+
+function rapidoTerminar() {
+  if (!rapidoCita) return;
+  var c = rapidoCita;
+  var ini = enCurso[c.id];
+  rapidoFinMs = ahoraServidor();
+  var min = ini ? Math.max(1, Math.round((rapidoFinMs - ini) / 60000)) : 0;
+
+  // Tatuaje: lleva valor final y más datos → cierre completo con el tiempo ya puesto.
+  if (esTatuajeCita(c)) {
+    var fin = rapidoFinMs;
+    cerrarRapido();
+    cierreDurCrono = min;
+    cierreTerminoMs = fin;
+    abrirCierrePorId(c.id);
+    return;
+  }
+
+  if (rapidoTic) { clearInterval(rapidoTic); rapidoTic = null; }
+  document.getElementById('mr-duro').innerHTML = min
+    ? 'Duró <b>' + duracionCorta(min) + '</b> · empezó ' + horaDeMs(ini)
+    : 'Servicio terminado';
+  document.getElementById('mr-propina').value = '';
+  limpiarError(document.getElementById('mr-error'));
+
+  var pintarCobro = function() {
+    var box = document.getElementById('mr-metodos');
+    box.innerHTML = '';
+    (opcionesCierre.metodos || []).forEach(function(m) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = m;
+      b.onclick = function() {
+        rapidoMetodo = m;
+        Array.prototype.forEach.call(box.children, function(x) { x.className = (x === b) ? 'on' : ''; });
+      };
+      box.appendChild(b);
+    });
+    var prodBox = document.getElementById('mr-productos');
+    prodBox.innerHTML = '';
+    var lista = opcionesCierre.productos || [];
+    if (lista.length) {
+      prodBox.innerHTML = '<label>¿Consumió algo?</label>';
+      lista.forEach(function(p) { prodBox.appendChild(filaProducto(p.nombre, p.precio, 0, 0)); });
+    }
+    prodBox.hidden = !lista.length;
+    rapidoPaso('cobro');
+  };
+  if (opcionesCierre) { pintarCobro(); return; }
+  google.script.run
+    .withSuccessHandler(function(o) { opcionesCierre = o || OPCIONES_DEFAULT; pintarCobro(); })
+    .withFailureHandler(function() { opcionesCierre = OPCIONES_DEFAULT; pintarCobro(); })
+    .getOpcionesCierre();
+}
+
+/** Marca localmente una cita como cerrada (antes de que llegue la recarga). */
+function rapidoMarcarCerrada(id, estado) {
+  delete enCurso[id];
+  ((calDatos && calDatos.citas) || []).forEach(function(x) { if (x.id === id) x.estadoReal = estado; });
+  agendaCitas.forEach(function(x) { if (x.id === id) x.estadoReal = estado; });
+}
+
+/** Cierre rápido (Listo / No vino) contra el mismo backend del cierre completo. */
+function rapidoCerrar(datos, btn, textoBtn) {
+  var c = rapidoCita;
+  if (!c) return;
+  var errBox = document.getElementById('mr-error');
+  limpiarError(errBox);
+  datos.desde = desdeActual;
+  datos.hasta = hastaActual;
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  var respondio = false;
+  var reloj = setTimeout(function() {
+    if (respondio) return;
+    btn.disabled = false; btn.textContent = textoBtn;
+    mostrarError(errBox, 'El servidor está tardando. Revisa si quedó guardado antes de repetir.');
+  }, 20000);
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      respondio = true; clearTimeout(reloj);
+      btn.disabled = false; btn.textContent = textoBtn;
+      if (!r || !r.ok) {
+        var msg = (r && r.error) || 'No se pudo guardar.';
+        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
+        mostrarError(errBox, msg);
+        return;
+      }
+      rapidoMarcarCerrada(c.id, datos.estado);
+      cerrarRapido();
+      rapidoRepintar();
+      citasCargadas = false;
+      calInvalidate();
+      if (r.dashboard) renderDashboard(r.dashboard);
+      else cargarDatos(desdeActual, hastaActual);
+    })
+    .withFailureHandler(function(e) {
+      respondio = true; clearTimeout(reloj);
+      btn.disabled = false; btn.textContent = textoBtn;
+      mostrarError(errBox, 'No se pudo guardar: ' + ((e && e.message) || 'revisa tu conexión') + '.');
+    })
+    .cerrarServicioDashboard(tokenActual, c.id, datos);
+}
+
+function rapidoListo() {
+  if (!rapidoMetodo) { mostrarError(document.getElementById('mr-error'), 'Toca cómo pagó.'); return; }
+  var productos = {};
+  document.querySelectorAll('#mr-productos b[data-prod]').forEach(function(b) {
+    var n = b.getAttribute('data-prod');
+    if (!productos[n]) productos[n] = { v: 0, r: 0 };
+    productos[n][b.getAttribute('data-tipo')] = parseInt(b.textContent, 10) || 0;
+  });
+  var propina = parseInt(document.getElementById('mr-propina').value, 10) || 0;
+  if (propina < 0) propina = 0;
+  rapidoCerrar({
+    estado: 'Atendido', metodo: rapidoMetodo, propina: propina, descuento: 0,
+    productos: productos, terminoMs: rapidoFinMs
+  }, document.getElementById('mr-listo'), '✓ Listo');
+}
+
+function rapidoNoVino() {
+  if (!rapidoCita) return;
+  if (!confirm('¿Marcar que ' + (rapidoCita.cliente || 'el cliente') + ' no vino?')) return;
+  rapidoCerrar({ estado: 'No asistió', propina: 0, descuento: 0, productos: {} },
+               document.getElementById('mr-novino'), 'No vino');
+}
+
+function rapidoEditar() {
+  if (!rapidoCita) return;
+  var id = rapidoCita.id;
+  cerrarRapido();
+  abrirEditar(id);
+}
+
+function rapidoMasOpciones() {
+  if (!rapidoCita) return;
+  var id = rapidoCita.id, fin = rapidoFinMs;
+  cerrarRapido();
+  cierreTerminoMs = fin;
+  abrirCierrePorId(id);
 }
 
 function guardarCierre() {
   if (!cierreCitaId) return;
+  var idGuardado = cierreCitaId;
   var btn = document.getElementById('mc-guardar');
   var errBox = document.getElementById('mc-error');
 
@@ -2722,6 +3145,7 @@ function guardarCierre() {
     desde: desdeActual,
     hasta: hastaActual
   };
+  if (cierreTerminoMs) datos.terminoMs = cierreTerminoMs;
 
   // Solo se mandan si el barbero los cambió: así el backend no reescribe
   // (ni pierde) un servicio viejo que ya no está en Config.
@@ -2768,6 +3192,7 @@ function guardarCierre() {
         mostrarError(errBox, msg);
         return;
       }
+      if (datos.estado) rapidoMarcarCerrada(idGuardado, datos.estado);
       cerrarModal();
       citasCargadas = false;
       calInvalidate();
@@ -2823,6 +3248,7 @@ function cargarAgenda() {
     .withSuccessHandler(function(r) {
       citasCargadas = true;
       agendaCitas = (r && r.citas) || [];
+      absorberEnCurso(r);
       renderAgenda();
     })
     .withFailureHandler(function(e) {
@@ -2846,11 +3272,11 @@ function renderAgenda() {
     }
     var sub = esc(c.servicio);
     if (rolActual === 'Dueño' && c.barbero) sub += ' · ' + esc(c.barbero);
-    html += '<div class="cita-row" onclick="abrirEditar(\'' + esc(c.id) + '\')">' +
+    html += '<div class="cita-row" onclick="agendaTocar(\'' + esc(c.id) + '\')">' +
       '<div class="cita-hora">' + esc(c.hora) + '</div>' +
       '<div class="cita-mid">' +
         '<div class="cita-cliente">' + esc(c.cliente) + '</div>' +
-        '<div class="cita-sub">' + sub + '</div>' +
+        '<div class="cita-sub">' + sub + (enCurso[c.id] ? ' · ' + cronoHtml(c.id) : '') + '</div>' +
       '</div>' +
       '<div class="srv-chevron">›</div>' +
     '</div>';
@@ -2975,6 +3401,7 @@ function calRefrescar(tras_cambio) {
     }
     terminar();
     calDatos = res;
+    absorberEnCurso(res);
     calCargado = true;
     cacheGuardar(clave, res);
     aviso.textContent = '';
@@ -3069,13 +3496,15 @@ function calEstadoClase(c) {
   if (c.estadoReserva === 'Cancelada' || c.estadoReal === 'Cancelado') return 'st-cancelada';
   if (c.estadoReal === 'Atendido') return 'st-atendido';
   if (c.estadoReal === 'No asistió') return 'st-no-asistio';
+  if (enCurso[c.id]) return 'st-en-curso';
   return '';
 }
 
 function calAbrirCita(id) {
   // El click que suelta un arrastre no debe abrir la cita.
   if (Date.now() - calArrastreFin < 400) return;
-  abrirEditar(id);
+  var c = ((calDatos && calDatos.citas) || []).filter(function(x) { return x.id === id; })[0];
+  tocarCita(c, function() { abrirEditar(id); });
 }
 function calAbrirHueco(barbero, fecha, hora) { abrirNuevaCita({ barbero: barbero, fecha: fecha, hora: hora }); }
 
@@ -3208,7 +3637,7 @@ function calRenderDia() {
         'px;height:' + b.height + 'px;' + pos + '" data-id="' + esc(c.id) + '" data-dur="' + (b.fin - b.ini) + '"' +
         ' title="' + esc(c.hora + ' · ' + (c.cliente || '') + (c.servicio ? ' · ' + c.servicio : '')) + '"' +
         ' onclick="event.stopPropagation();calAbrirCita(\'' + esc(c.id) + '\')">' +
-        '<b>' + esc(c.hora) + '</b><span>' + esc(c.cliente) + '</span>' +
+        '<b>' + esc(c.hora) + '</b><span>' + esc(c.cliente) + '</span>' + cronoHtml(c.id) +
         (conServicio ? '<small>' + esc(c.servicio) + '</small>' : '') + '</div>';
     });
 

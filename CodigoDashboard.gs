@@ -710,6 +710,101 @@ function _filaReserva_(h, id) {
   return null;
 }
 
+// ─────────────────────────────────────────────
+//  SERVICIOS EN CURSO (cronómetro Iniciar → Terminar)
+// ─────────────────────────────────────────────
+// Mientras un servicio está en curso, su hora de inicio vive en una propiedad
+// del script ({ idCita: milisegundos }). Al cerrarlo, los minutos reales van
+// al Registro (col AC "Minutos reales", col AD "Inicio real") y se borra de aquí.
+var PROP_EN_CURSO     = 'riif_en_curso';
+var COL_MIN_REALES    = 29;   // Registro col AC
+var COL_INICIO_REAL   = 30;   // Registro col AD
+
+/** { idCita: ms de inicio } de los servicios en curso (descarta los de más de 18 h). */
+function _enCurso_() {
+  var m = {};
+  try { m = JSON.parse(PropertiesService.getScriptProperties().getProperty(PROP_EN_CURSO) || '{}') || {}; }
+  catch (e) { m = {}; }
+  var limite = Date.now() - 18 * 3600000;
+  Object.keys(m).forEach(function (id) { if (!(Number(m[id]) > limite)) delete m[id]; });
+  return m;
+}
+
+function _guardarEnCurso_(m) {
+  PropertiesService.getScriptProperties().setProperty(PROP_EN_CURSO, JSON.stringify(m || {}));
+}
+
+/** Busca la cita en Reservas y revisa que quien la toca pueda hacerlo. */
+function _citaPropia_(s, id) {
+  var res = _filaReserva_(libro_().getSheetByName(HOJA_RESERVAS), id);
+  if (!res) return { error: 'No encontramos esa cita.' };
+  var barbero = String(res.f[5]).trim();
+  if (s.rol !== 'Dueño' && barbero !== s.nombre) return { error: 'Esa cita es de ' + barbero + '.' };
+  if (String(res.f[12]).trim() === 'Cancelada') return { error: 'Esa cita está cancelada.' };
+  return { res: res };
+}
+
+/** Arranca el cronómetro de una cita. Si ya estaba iniciada, devuelve la hora original. */
+function iniciarServicioDashboard(token, id) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  id = String(id || '').trim();
+  var c = _citaPropia_(s, id);
+  if (c.error) return { ok: false, error: c.error };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); }
+  catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
+  try {
+    var m = _enCurso_();
+    if (!m[id]) m[id] = Date.now();
+    _guardarEnCurso_(m);
+    return { ok: true, inicio: m[id] };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Deshace un "Iniciar" tocado por error. */
+function cancelarInicioDashboard(token, id) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  id = String(id || '').trim();
+  var c = _citaPropia_(s, id);
+  if (c.error) return { ok: false, error: c.error };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); }
+  catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
+  try {
+    var m = _enCurso_();
+    delete m[id];
+    _guardarEnCurso_(m);
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Para que el dashboard sepa qué citas están en curso (al abrir o recargar). */
+function getEnCursoDashboard(token) {
+  try { _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  return { ok: true, enCurso: _enCurso_(), ahora: Date.now() };
+}
+
+/** Deja listos los encabezados de las columnas de tiempo real en el Registro. */
+function _asegurarColsTiempoReal_(hg) {
+  if (hg.getMaxColumns() < COL_INICIO_REAL) {
+    hg.insertColumnsAfter(hg.getMaxColumns(), COL_INICIO_REAL - hg.getMaxColumns());
+  }
+  var enc = hg.getRange(1, COL_MIN_REALES, 1, 2);
+  var v = enc.getValues()[0];
+  if (String(v[0]).trim() !== 'Minutos reales' || String(v[1]).trim() !== 'Inicio real') {
+    enc.setValues([['Minutos reales', 'Inicio real']])
+      .setFontWeight('bold').setBackground('#111111').setFontColor('#FFFFFF');
+  }
+}
+
 /**
  * Cierra un servicio desde el dashboard: escribe Estado, Método de pago,
  * Propina y productos en la fila del Registro, y ajusta el inventario.
@@ -766,6 +861,19 @@ function cerrarServicioDashboard(token, id, datos) {
     // escribir nada, para no dejar un cierre a medias si no aplica.
     var valorFinal = Number(datos.valorFinal);
     var durReal = Math.round(Number(datos.duracionReal) || 0);
+
+    // Cronómetro: si el servicio se inició con "Iniciar", aquí se mide cuánto
+    // duró de verdad. Solo cuenta si se cierra como Atendido.
+    var enCurso = _enCurso_();
+    var inicioMs = Number(enCurso[id]) || 0;
+    var minReales = 0;
+    if (inicioMs && String(datos.estado || '').trim() === 'Atendido') {
+      // Fin = cuando tocó "Terminar" (no cuando terminó de cobrar), si es creíble.
+      var finMs = Number(datos.terminoMs) || 0;
+      if (!(finMs > inicioMs && finMs <= Date.now() + 120000)) finMs = Date.now();
+      minReales = Math.max(1, Math.round((finMs - inicioMs) / 60000));
+    }
+
     if (valorFinal > 0 || durReal > 0) {
       var nombresCat = (datos.servicios && datos.servicios.length)
         ? datos.servicios
@@ -883,6 +991,19 @@ function cerrarServicioDashboard(token, id, datos) {
     // bien y deja la celda en #ERROR!, ver _aplicarFormulasComision_ en Codigo.gs)
     _aplicarFormulasComision_(hg, fila);
 
+    // --- Tiempo real medido con el cronómetro ---
+    if (minReales > 0) {
+      _asegurarColsTiempoReal_(hg);
+      hg.getRange(fila, COL_MIN_REALES, 1, 2).setValues([[
+        minReales, Utilities.formatDate(new Date(inicioMs), TZ, 'HH:mm')
+      ]]);
+    }
+    // Cerrada con cualquier estado: ya no está en curso.
+    if (inicioMs && estado) {
+      delete enCurso[id];
+      _guardarEnCurso_(enCurso);
+    }
+
     // Dejar marcado en Google Calendar que esta cita ya se cerró.
     if (estado && res) {
       var resumen = String(hg.getRange(fila, 6).getValue()).trim() +
@@ -895,7 +1016,7 @@ function cerrarServicioDashboard(token, id, datos) {
       } catch (e) {}
     }
 
-    var salida = { ok: true };
+    var salida = { ok: true, minReales: minReales };
     if (datos.desde && datos.hasta) {
       SpreadsheetApp.flush();
       salida.dashboard = datosDashboard_(
@@ -1155,6 +1276,7 @@ function getAgendaDashboard(token, dias) {
   var limite = Utilities.formatDate(new Date(Date.now() + dias * 86400000), TZ, 'yyyy-MM-dd');
   var datos = h.getRange(2, 1, h.getLastRow() - 1, 16).getValues();
   var citas = [];
+  var estados = _estadosRegistroPorId_();   // para saber cuáles ya se cerraron
 
   datos.forEach(function (f) {
     var id = String(f[0]).trim();
@@ -1169,7 +1291,8 @@ function getAgendaDashboard(token, dias) {
       id: id, fecha: iso, hora: aHHMM_(f[3]), fin: aHHMM_(f[4]),
       barbero: barbero, servicio: String(f[6]).trim(), precio: Number(f[8]) || 0,
       cliente: String(f[9]).trim(), telefono: String(f[10]).trim(),
-      notas: String(f[13]).trim(), estado: String(f[12]).trim()
+      notas: String(f[13]).trim(), estado: String(f[12]).trim(),
+      estadoReal: estados[id] || ''
     });
   });
 
@@ -1177,7 +1300,7 @@ function getAgendaDashboard(token, dias) {
     if (a.fecha !== b.fecha) return a.fecha < b.fecha ? -1 : 1;
     return a.hora < b.hora ? -1 : 1;
   });
-  return { citas: citas };
+  return { citas: citas, enCurso: _enCurso_(), ahora: Date.now() };
 }
 
 /**
@@ -1322,6 +1445,8 @@ function getCalendarioDashboard(token, desde, hasta) {
     eventosManuales: eventosManuales,
     calendarOmitido: calendarOmitido,
     citas: citas,
+    enCurso: _enCurso_(),
+    ahora: Date.now(),
     tiempos: tiempos
   };
 }
