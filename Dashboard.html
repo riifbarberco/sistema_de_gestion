@@ -945,10 +945,6 @@
   .ah-servicios button.on { border-color: var(--green); background: rgba(76,175,122,0.18); }
   .ah-servicios button.on b::before { content: '✓ '; color: var(--green); }
   .ah-servicios button.siempre { grid-column: 1 / -1; border-color: var(--gold); background: rgba(201,168,76,0.12); }
-  .mr-serv-linea { display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    background: var(--surface2); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
-  .mr-cambiar { background: none; border: 1px solid var(--border); color: var(--gold); border-radius: 6px;
-    padding: 6px 10px; font-size: 12px; cursor: pointer; }
   .sig-card { background: var(--surface2); border-radius: 10px; padding: 12px; margin-bottom: 4px; }
   .sig-card small { display: block; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
   .sig-card b { font-size: 17px; }
@@ -1056,7 +1052,7 @@
         <div class="num" id="k-tatuador">—</div>
         <div class="lbl">Pago tatuador</div>
       </div>
-      <div class="kpi">
+      <div class="kpi" id="kpi-propinas">
         <div class="num" id="k-propinas">—</div>
         <div class="lbl">Propinas</div>
       </div>
@@ -1205,7 +1201,7 @@
       <select id="mc-metodo"></select>
     </div>
 
-    <div class="campo">
+    <div class="campo" id="mc-campo-propina">
       <label>Propina</label>
       <input id="mc-propina" type="number" min="0" step="500" placeholder="0">
     </div>
@@ -1255,24 +1251,18 @@
     <!-- 3. Cobrar -->
     <div id="mr-paso-cobro" hidden>
       <div class="mr-duro" id="mr-duro"></div>
-      <div class="campo" id="mr-campo-serv">
-        <label>Servicio</label>
-        <div class="mr-serv-linea"><span id="mr-serv-nombre"></span>
-          <button type="button" class="mr-cambiar" id="mr-btn-cambiar" onclick="rapidoCambiarServ()">Cambiar</button></div>
-        <div class="serv-list" id="mr-servicios" hidden style="margin-top:8px;"></div>
-        <div class="serv-resumen" id="mr-serv-resumen" hidden></div>
-      </div>
       <div class="campo">
         <label>¿Cómo pagó?</label>
         <div class="mr-metodos" id="mr-metodos"></div>
       </div>
       <div class="campo" id="mr-productos"></div>
-      <div class="campo">
+      <!-- Propina: solo la ve y la registra el barbero (no tiene que ver con la barbería) -->
+      <div class="campo" id="mr-campo-propina">
         <label>Propina <span style="text-transform:none;letter-spacing:0;">(opcional)</span></label>
         <input id="mr-propina" type="number" min="0" step="500" placeholder="0" inputmode="numeric">
       </div>
       <button class="btn-primary" id="mr-listo" onclick="rapidoListo()">✓ Listo</button>
-      <button class="mr-link" onclick="rapidoMasOpciones()">Más opciones (descuento, cortesías…)</button>
+      <button class="mr-link" onclick="rapidoMasOpciones()">Más opciones (cambiar servicio, descuento, cortesías…)</button>
     </div>
 
     <!-- 4. Listo → siguiente cliente -->
@@ -2187,12 +2177,13 @@ function renderDashboard(d) {
   if (hayTatuador) ponerMonto('k-comision', pagoDe(CAT_BARBERIA));
   ponerMonto('k-tatuador', pagoDe(CAT_TATUAJES));
   document.getElementById('kpi-tatuador').style.display = hayTatuador ? '' : 'none';
-  document.querySelector('.kpi-grid').classList.toggle('seis', hayTatuador);
+  document.getElementById('kpi-propinas').style.display = esDueno ? 'none' : '';
   // Pago barbería = servicios − comisiones + bebidas vendidas. El barbero ve
   // el de sus propios servicios: es lo que le debe entregar a la barbería.
   ponerMonto('k-barberia', d.totalBarberia);
   document.getElementById('kpi-barberia').style.display = '';
-  document.querySelector('.kpi-grid').classList.add('cinco');
+  // 5 cajitas (barbero, o dueño con tatuador) o 4 (dueño sin tatuador).
+  document.querySelector('.kpi-grid').classList.toggle('cinco', !esDueno || hayTatuador);
 
   // Actualizar título del gráfico
   var titulo = filtroActual === 'hoy' ? 'Servicios por hora' :
@@ -2756,8 +2747,10 @@ function pintarCierre(s) {
     selM.appendChild(o);
   });
 
-  // Propina y descuento
+  // Propina y descuento. La propina solo la ve el barbero; para el dueño el
+  // campo se esconde pero conserva lo que tenía (no se borra al guardar).
   document.getElementById('mc-propina').value = s.propina ? s.propina : '';
+  document.getElementById('mc-campo-propina').hidden = (rolActual === 'Dueño');
   document.getElementById('mc-descuento').value = s.descuento ? s.descuento : '';
 
   // Productos (dinámico: lo que haya en el inventario)
@@ -2947,8 +2940,6 @@ var rapidoCita     = null; // cita abierta en la hoja rápida
 var rapidoMetodo   = '';
 var rapidoFinMs    = 0;    // cuándo se tocó "Terminar" (hora del servidor)
 var rapidoTic      = null; // intervalo del reloj grande
-var rapidoServSel  = [];   // servicios marcados en el cobro rápido
-var rapidoServIni  = '';   // firma de los que traía la cita
 var rapidoSig      = null; // siguiente cita que se ofrece al terminar
 var cierreDurCrono = 0;    // tatuaje: minutos del cronómetro para prellenar el cierre completo
 var cierreTerminoMs = 0;   // cierre completo abierto desde "Terminar": fin del cronómetro
@@ -3159,21 +3150,10 @@ function rapidoTerminar() {
     ? 'Duró <b>' + duracionCorta(min) + '</b> · empezó ' + horaDeMs(ini)
     : 'Servicio terminado';
   document.getElementById('mr-propina').value = '';
+  document.getElementById('mr-campo-propina').hidden = (rolActual === 'Dueño');
   limpiarError(document.getElementById('mr-error'));
 
   var pintarCobro = function() {
-    // Servicio hecho: el de la cita; "Cambiar" abre la lista por si hizo otra cosa.
-    var catTodo = opcionesCierre.servicios || [];
-    rapidoServSel = String(c.servicio || '').split(SEPARADOR_COMBO)
-      .map(function(n) { return n.trim(); }).filter(Boolean)
-      .map(function(n) { return catTodo.filter(function(x) { return x.nombre === n; })[0]; })
-      .filter(Boolean);
-    rapidoServIni = firmaServicios(rapidoServSel);
-    document.getElementById('mr-serv-nombre').textContent = c.servicio || '—';
-    document.getElementById('mr-servicios').hidden = true;
-    document.getElementById('mr-serv-resumen').hidden = true;
-    document.getElementById('mr-btn-cambiar').hidden = !catTodo.length;
-
     var box = document.getElementById('mr-metodos');
     box.innerHTML = '';
     ordenarPorUso(opcionesCierre.metodos || [], usoMetodos(c.barbero)).forEach(function(m) {
@@ -3275,13 +3255,6 @@ function rapidoListo() {
     estado: 'Atendido', metodo: rapidoMetodo, propina: propina, descuento: 0,
     productos: productos, terminoMs: rapidoFinMs
   };
-  if (firmaServicios(rapidoServSel) !== rapidoServIni) {
-    if (!rapidoServSel.length) {
-      mostrarError(document.getElementById('mr-error'), 'Marca al menos un servicio.');
-      return;
-    }
-    datos.servicios = rapidoServSel.map(function(x) { return x.nombre; });
-  }
   rapidoCerrar(datos, document.getElementById('mr-listo'), '✓ Listo');
 }
 
@@ -3305,24 +3278,6 @@ function rapidoMasOpciones() {
   cerrarRapido();
   cierreTerminoMs = fin;
   abrirCierrePorId(id);
-}
-
-/** En el cobro: abre la lista para corregir lo que realmente se hizo. */
-function rapidoCambiarServ() {
-  if (!rapidoCita || !opcionesCierre) return;
-  var catTodo = opcionesCierre.servicios || [];
-  var cat = rapidoServSel.length ? catDe(rapidoServSel[0]) : catTrabajador(rapidoCita.barbero);
-  var lista = catTodo.filter(function(x) { return catDe(x) === cat; });
-  var pintarNombre = function() {
-    resumenServicios('mr-serv-resumen', rapidoServSel);
-    document.getElementById('mr-serv-nombre').textContent = rapidoServSel.length
-      ? rapidoServSel.map(function(x) { return x.nombre; }).join(SEPARADOR_COMBO) : '— Elige —';
-  };
-  document.getElementById('mr-servicios').hidden = false;
-  document.getElementById('mr-serv-resumen').hidden = false;
-  document.getElementById('mr-btn-cambiar').hidden = true;
-  renderServiciosCheck('mr-servicios', lista, rapidoServSel, pintarNombre);
-  pintarNombre();
 }
 
 /** Próxima cita pendiente de hoy del mismo barbero (sin iniciar ni cerrar). */

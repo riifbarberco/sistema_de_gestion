@@ -142,7 +142,10 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     // Total cobrado = servicio (con descuento) + productos vendidos. Así
     // Total cobrado + Propinas = Pago barberos + Pago barbería.
     totalCobrado   += total + valorProd;
-    totalComision  += pagoBarbero;   // "pago barbero" = comisión + propina
+    // "pago barbero" = comisión + propina. El dueño lo ve SIN propina: la
+    // propina es del barbero y no pasa por la barbería (solo la ve el barbero).
+    var pagoVisible = (verTodo && atendido) ? Math.max(pagoBarbero - propina, 0) : pagoBarbero;
+    totalComision  += pagoVisible;
     totalPropinas  += propina;
     totalBarberia  += neto;
     totalProductos += valorProd;
@@ -178,7 +181,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
       pt.minutos         += Number(f[20]) || 0;   // col 21 Duración (real si se marcó al cerrar)
       pt.servicioCobrado += total;                // sin productos: para el cobro por hora
       pt.cobrado  += total + valorProd;
-      pt.pago     += pagoBarbero;
+      pt.pago     += pagoVisible;
       pt.barberia += neto;
     }
 
