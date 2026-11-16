@@ -84,6 +84,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
   var contServicios = {};   // { 'Nombre servicio': { count, total } }
   var porTrabajador = {};   // { nombre: { categoria, servicios, cobrado, pago, barberia } } (solo atendidos)
   var totalVentas   = 0;    // $ de productos vendidos sin servicio (ventas de mostrador)
+  var porMetodo     = {};   // { 'Bold': { total, n } } lo recibido por cada método (con propinas)
   var nServicios    = 0;    // servicios de verdad (sin contar ventas sueltas)
 
   datos.forEach(function(f) {
@@ -147,6 +148,16 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     totalProductos += valorProd;
     if (esVenta) totalVentas += valorProd;
 
+    // Recibido por método de pago (Bold, Efectivo, Nequi…): servicio + productos
+    // + propina, que es lo que de verdad entra por ese medio. Solo atendidos.
+    var recibido = total + valorProd + propina;
+    var nomMetodo = metodo || 'Sin registrar';
+    if (atendido && recibido > 0) {
+      if (!porMetodo[nomMetodo]) porMetodo[nomMetodo] = { total: 0, n: 0 };
+      porMetodo[nomMetodo].total += recibido;
+      porMetodo[nomMetodo].n++;
+    }
+
     // Pago por trabajador (barberos y tatuadores por separado), para que el
     // dueño vea cuánto entra y cuánto se le paga a cada uno.
     if (atendido && fBarbero && !esVenta) {
@@ -156,8 +167,9 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
         try { catPt = categoriaTrabajador_(fBarbero); } catch (e) {}
         pt = porTrabajador[fBarbero] = { nombre: fBarbero, categoria: catPt,
                                          servicios: 0, cobrado: 0, pago: 0, barberia: 0,
-                                         minutos: 0, servicioCobrado: 0 };
+                                         minutos: 0, servicioCobrado: 0, metodos: {} };
       }
+      if (recibido > 0) pt.metodos[nomMetodo] = (pt.metodos[nomMetodo] || 0) + recibido;
       pt.servicios++;
       pt.minutos         += Number(f[20]) || 0;   // col 21 Duración (real si se marcó al cerrar)
       pt.servicioCobrado += total;                // sin productos: para el cobro por hora
@@ -237,6 +249,10 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
                       if (a.categoria !== b.categoria) return a.categoria === CAT_BARBERIA ? -1 : 1;
                       return b.pago - a.pago;
                     }),
+    // Por método, de mayor a menor.
+    porMetodo:      Object.keys(porMetodo).map(function (k) {
+                      return { metodo: k, total: Math.round(porMetodo[k].total), n: porMetodo[k].n };
+                    }).sort(function (a, b) { return b.total - a.total; }),
     servicios:      servicios
   };
 }

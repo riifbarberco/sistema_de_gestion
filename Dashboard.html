@@ -1065,6 +1065,12 @@
       </div>
     </div>
 
+    <!-- Recibido por método de pago (Bold, Efectivo, Nequi…). El barbero ve lo suyo. -->
+    <div class="section" id="sec-metodos" hidden>
+      <div class="section-title">Recibido por método de pago</div>
+      <div id="metodos-area"></div>
+    </div>
+
     <!-- Pago por trabajador (solo dueño): barberos y tatuadores por separado -->
     <div class="section" id="sec-equipo" hidden>
       <div class="section-title">Pago por trabajador</div>
@@ -2190,6 +2196,9 @@ function renderDashboard(d) {
                filtroActual === 'anio' ? 'Servicios por mes' : 'Servicios por día';
   document.getElementById('chart-title').textContent = titulo;
 
+  // Recibido por método de pago
+  renderMetodos(d.porMetodo || []);
+
   // Pago por trabajador (solo el dueño ve a todos)
   renderEquipo(d.porTrabajador || [], d.totalVentas || 0, esDueno);
 
@@ -2229,6 +2238,33 @@ function pesos(n) {
  * cada uno con lo que cobró, lo que se le paga y lo que queda para la barbería.
  * Solo cuenta servicios atendidos del período elegido.
  */
+/** Cuánto entró por cada método (incluye productos y propinas). */
+function renderMetodos(lista) {
+  var sec = document.getElementById('sec-metodos');
+  sec.hidden = !lista.length;
+  if (!lista.length) return;
+  var suma = lista.reduce(function(a, m) { return a + m.total; }, 0);
+  var html = '';
+  lista.forEach(function(m) {
+    html += '<div class="eq-row">' +
+      '<div><div class="eq-nom">' + esc(m.metodo) + '</div>' +
+        '<div class="eq-sub">' + m.n + (m.n === 1 ? ' pago' : ' pagos') + '</div></div>' +
+      '<div class="eq-pago"><b>' + pesosExacto(m.total) + '</b></div>' +
+    '</div>';
+  });
+  html += '<div class="eq-cat"><span>Total recibido</span><span>' + pesosExacto(suma) + '</span></div>' +
+    '<div class="eq-sub" style="margin-top:4px;">Incluye servicios, productos y propinas.</div>';
+  document.getElementById('metodos-area').innerHTML = html;
+}
+
+/** "Bold $80.000 · Efectivo $45.000" de un trabajador, de mayor a menor. */
+function textoMetodos(m) {
+  return Object.keys(m || {})
+    .sort(function(a, b) { return m[b] - m[a]; })
+    .map(function(k) { return esc(k) + ' ' + pesosExacto(Math.round(m[k])); })
+    .join(' · ');
+}
+
 function renderEquipo(lista, ventas, esDueno) {
   var sec = document.getElementById('sec-equipo');
   sec.hidden = !esDueno;
@@ -2257,6 +2293,7 @@ function renderEquipo(lista, ventas, esDueno) {
         '<div><div class="eq-nom">' + esc(t.nombre) + '</div>' +
           '<div class="eq-sub">' + t.servicios + (t.servicios === 1 ? ' servicio' : ' servicios') +
           ' · cobrado ' + dinero(t.cobrado) + '</div>' +
+          (textoMetodos(t.metodos) ? '<div class="eq-sub">' + textoMetodos(t.metodos) + '</div>' : '') +
           (t.minutos > 0
             ? '<div class="eq-sub">' + duracionCorta(t.minutos) + ' trabajadas · ' +
               dinero(t.servicioCobrado / (t.minutos / 60)) + ' por hora</div>'
