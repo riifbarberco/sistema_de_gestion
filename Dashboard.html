@@ -997,9 +997,8 @@
 
     <!-- Pestañas -->
     <div class="tabbar">
-      <button class="tab" data-tab="hoy" id="tab-btn-hoy" onclick="verTab('hoy')">Mi día</button>
-      <button class="tab on" data-tab="calendario" onclick="verTab('calendario')">Calendario</button>
       <button class="tab" data-tab="citas" onclick="verTab('citas')">Citas</button>
+      <button class="tab on" data-tab="calendario" onclick="verTab('calendario')">Calendario</button>
       <button class="tab" data-tab="resumen" onclick="verTab('resumen')">Resumen</button>
       <button class="tab" data-tab="inventario" id="tab-btn-inventario" hidden onclick="verTab('inventario')">Inventario</button>
       <button class="tab" data-tab="analisis" id="tab-btn-analisis" hidden onclick="verTab('analisis')">Análisis</button>
@@ -1094,21 +1093,16 @@
     </div>
     </section>
 
-    <!-- ══════ PESTAÑA MI DÍA ══════ -->
-    <section id="tab-hoy" hidden>
+    <!-- ══════ PESTAÑA CITAS: hoy (Iniciar / Terminar) + próximos días ══════ -->
+    <section id="tab-citas" hidden>
       <button class="btn-grande btn-iniciar" onclick="abrirAhora()">▶ Atender ahora</button>
       <div class="mr-acciones" style="margin-bottom:6px;">
         <button class="btn-logout" onclick="abrirNuevaCita()">＋ Agendar cita</button>
         <button class="btn-logout" onclick="abrirVenta()">🛒 Vender productos</button>
       </div>
       <div id="hoy-area"><div class="spinner"></div></div>
-    </section>
-
-    <!-- ══════ PESTAÑA CITAS ══════ -->
-    <section id="tab-citas" hidden>
-      <button class="btn-primary" onclick="abrirNuevaCita()" style="margin-bottom:10px;">＋ Nueva cita</button>
-      <button class="btn-sec" onclick="abrirVenta()" style="margin-bottom:16px;">🛒 Vender productos</button>
-      <div id="agenda-area"><div class="spinner"></div></div>
+      <div class="hoy-titulo" id="proximos-titulo" hidden>Próximos días</div>
+      <div id="agenda-area"></div>
     </section>
 
     <!-- ══════ PESTAÑA CALENDARIO ══════ -->
@@ -1898,7 +1892,7 @@ function mostrarDashboard() {
   resRef = isoHoy();
   tabActual = '';
   agendaRecibida = false;
-  verTab(rolActual === 'Dueño' ? 'calendario' : 'hoy');
+  verTab(rolActual === 'Dueño' ? 'calendario' : 'citas');
 }
 
 /** Lo que cambia según el rol (se llama al entrar y si el rol cambia). */
@@ -1906,7 +1900,6 @@ function aplicarRolUI() {
   document.getElementById('saludo-fecha').textContent  =
     (rolActual === 'Dueño' ? 'Vista de administrador · ' : '') + fechaHoyTexto() + ' · v24';
   document.getElementById('tab-btn-inventario').hidden = (rolActual !== 'Dueño');
-  document.getElementById('tab-btn-hoy').textContent = (rolActual === 'Dueño') ? 'Hoy' : 'Mi día';
   document.getElementById('tab-btn-analisis').hidden = false;   // cada barbero ve sus propias métricas
   document.querySelectorAll('.solo-dueno').forEach(function(el) {
     el.style.display = (rolActual === 'Dueño') ? '' : 'none';
@@ -1947,13 +1940,11 @@ function verTab(t) {
   });
   document.getElementById('tab-resumen').hidden    = (t !== 'resumen');
   document.getElementById('tab-citas').hidden      = (t !== 'citas');
-  document.getElementById('tab-hoy').hidden        = (t !== 'hoy');
   document.getElementById('tab-calendario').hidden = (t !== 'calendario');
   document.getElementById('tab-inventario').hidden = (t !== 'inventario');
   document.getElementById('tab-analisis').hidden   = (t !== 'analisis');
   if (t === 'analisis' && !anDatos) anSetPeriodo(anPeriodo);
-  if (t === 'citas' && !citasCargadas) cargarAgenda();
-  if (t === 'hoy') { if (!citasCargadas) cargarAgenda(); else renderMiDia(); }
+  if (t === 'citas') { if (!citasCargadas) cargarAgenda(); else renderMiDia(); }
   if (t === 'calendario' && !calCargado) cargarCalendario();
   // Siempre se relee: el stock se puede haber cambiado en la hoja o por otro cierre.
   if (t === 'inventario') cargarInventario();
@@ -2954,11 +2945,6 @@ function tocarCita(c, otro) {
   else otro();
 }
 
-function agendaTocar(id) {
-  var c = agendaCitas.filter(function(x) { return x.id === id; })[0];
-  tocarCita(c, function() { abrirEditar(id); });
-}
-
 function resumenTocar(i) {
   var s = todosServicios[i];
   if (!s || s.venta) { abrirCierre(i); return; }
@@ -3200,7 +3186,7 @@ function rapidoCerrar(datos, btn, textoBtn) {
         cerrarRapido();
       }
       rapidoRepintar();
-      if (tabActual === 'hoy' || tabActual === 'citas') cargarAgenda();
+      if (tabActual === 'citas') cargarAgenda();
       else citasCargadas = false;
       calInvalidate();
       if (r.dashboard) renderDashboard(r.dashboard);
@@ -3523,7 +3509,7 @@ function ahElegir(nombre, btn, forzar) {
       cerrarAhora();
       rapidoRepintar();
       calInvalidate();
-      if (tabActual === 'hoy' || tabActual === 'citas') cargarAgenda();
+      if (tabActual === 'citas') cargarAgenda();
     })
     .withFailureHandler(function() {
       soltar();
@@ -3653,8 +3639,9 @@ function calInvalidate() {
 //  PESTAÑA CITAS — AGENDA
 // ═════════════════════════════════════════════
 function cargarAgenda() {
-  var area = document.getElementById('agenda-area');
-  area.innerHTML = '<div class="spinner"></div>';
+  // La primera vez se ve el spinner; en las recargas se deja lo que hay
+  // hasta que llegue lo nuevo (no parpadea después de cada cierre).
+  if (!agendaRecibida) document.getElementById('hoy-area').innerHTML = '<div class="spinner"></div>';
   google.script.run
     .withSuccessHandler(function(r) {
       citasCargadas = true;
@@ -3666,31 +3653,36 @@ function cargarAgenda() {
       precargarFormularios();
     })
     .withFailureHandler(function(e) {
-      area.innerHTML = '<div class="no-data">No se pudo cargar la agenda.</div>';
+      if (!agendaRecibida) document.getElementById('hoy-area').innerHTML =
+        '<div class="no-data">No se pudo cargar la agenda.</div>';
     })
     .getAgendaDashboard(tokenActual, 21);
 }
 
+/** Próximos días (hoy va arriba, en las tarjetas de renderMiDia). */
 function renderAgenda() {
   var area = document.getElementById('agenda-area');
-  if (!agendaCitas.length) {
-    area.innerHTML = '<div class="no-data">No hay citas próximas.<br>Toca “＋ Nueva cita” para crear una.</div>';
+  var hoy = isoHoy();
+  var futuras = agendaCitas.filter(function(c) { return c.fecha > hoy; });
+  document.getElementById('proximos-titulo').hidden = false;
+  if (!futuras.length) {
+    area.innerHTML = '<div class="hoy-vacio" style="padding:12px;">No hay citas agendadas para los próximos días.</div>';
     return;
   }
   var html = '';
   var diaPrev = '';
-  agendaCitas.forEach(function(c) {
+  futuras.forEach(function(c) {
     if (c.fecha !== diaPrev) {
       diaPrev = c.fecha;
       html += '<div class="agenda-dia">' + fmtFechaLarga(c.fecha) + '</div>';
     }
     var sub = esc(c.servicio);
     if (rolActual === 'Dueño' && c.barbero) sub += ' · ' + esc(c.barbero);
-    html += '<div class="cita-row" onclick="agendaTocar(\'' + esc(c.id) + '\')">' +
+    html += '<div class="cita-row" onclick="abrirEditar(\'' + esc(c.id) + '\')">' +
       '<div class="cita-hora">' + esc(c.hora) + '</div>' +
       '<div class="cita-mid">' +
         '<div class="cita-cliente">' + esc(c.cliente) + '</div>' +
-        '<div class="cita-sub">' + sub + (enCurso[c.id] ? ' · ' + cronoHtml(c.id) : '') + '</div>' +
+        '<div class="cita-sub">' + sub + '</div>' +
       '</div>' +
       '<div class="srv-chevron">›</div>' +
     '</div>';
