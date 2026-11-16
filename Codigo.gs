@@ -1407,8 +1407,8 @@ function _tgRecordatorios_() {
 //  SEGUIMIENTO: citas sin iniciar y servicios sin cerrar (rutina de 15 min)
 // ─────────────────────────────────────────────
 var TG_PROP_SEGUIM     = 'TG_SEGUIMIENTO'; // JSON { fecha, ini:[ids], fin:[ids], dia:[barberos] }
-var SEG_SIN_INICIAR_MIN = 15;  // pasó la hora de la cita + esto y no le han dado Iniciar
-var SEG_SIN_CERRAR_MIN  = 20;  // en curso más de lo que dura el servicio + esto
+var SEG_SIN_INICIAR_MIN = 5;   // pasó la hora de la cita + esto y no le han dado Iniciar
+var SEG_SIN_CERRAR_MIN  = 5;   // en curso más de lo que dura el servicio + esto
 var SEG_FIN_DIA_MIN     = 15;  // al cerrar su horario + esto: lista de lo que quedó abierto
 
 function _urlDashboard_() {
@@ -1424,6 +1424,12 @@ function _urlDashboard_() {
  */
 function _tgSeguimiento_() {
   if (!_tgActivo_()) return 0;
+  var lockSeg = LockService.getScriptLock();
+  if (!lockSeg.tryLock(5000)) return 0;   // otra ejecución ya está avisando
+  try { return _tgSeguimientoSinCandado_(); } finally { lockSeg.releaseLock(); }
+}
+
+function _tgSeguimientoSinCandado_() {
   var chats = _tgChats_();
   if (!Object.keys(chats).length) return 0;
   var hr = libro_().getSheetByName(HOJA_RESERVAS);
@@ -1464,8 +1470,8 @@ function _tgSeguimiento_() {
       // ⏳ Ya pasó la hora y no se ha iniciado
       // (solo mientras la cita es "reciente": las muy viejas van al resumen del día)
       if (ahora >= ini + SEG_SIN_INICIAR_MIN && ahora <= ini + dur + 120 && st.ini.indexOf(id) < 0) {
-        if (_tgEnviar_(chats[barbero], '⏳ <b>' + _tgEsc_(c.cliente) + '</b> tenía cita a las <b>' +
-            _tgEsc_(c.hora) + '</b> (' + _tgEsc_(c.servicio) + ') y no la has iniciado.\n' +
+        if (_tgEnviar_(chats[barbero], '⏳ <b>Recordatorio:</b> la cita de <b>' + _tgEsc_(c.cliente) + '</b> era a las <b>' +
+            _tgEsc_(c.hora) + '</b> (' + _tgEsc_(c.servicio) + ') y no está iniciada.\n' +
             'Si ya llegó, tócala y dale <b>▶ Iniciar</b>. Si no vino, márcalo como <b>No vino</b>.' + pie)) {
           st.ini.push(id); n++;
         }
@@ -1474,8 +1480,9 @@ function _tgSeguimiento_() {
       // ⏱ Lleva mucho más de lo que dura el servicio
       var lleva = Math.round((Date.now() - inicioMs) / 60000);
       if (lleva >= dur + SEG_SIN_CERRAR_MIN && st.fin.indexOf(id) < 0) {
-        if (_tgEnviar_(chats[barbero], '⏱ Llevas <b>' + lleva + ' min</b> con <b>' + _tgEsc_(c.cliente) +
-            '</b> (' + _tgEsc_(c.servicio) + ', ' + dur + ' min).\n¿Ya terminaste? Ciérralo con <b>■ Terminar</b>.' + pie)) {
+        if (_tgEnviar_(chats[barbero], '⏱ <b>Recordatorio:</b> el servicio de <b>' + _tgEsc_(c.cliente) +
+            '</b> (' + _tgEsc_(c.servicio) + ', ' + dur + ' min) ya debía terminar · lleva ' + lleva + ' min.\n' +
+            'Si ya terminaste, ciérralo con <b>■ Terminar</b>.' + pie)) {
           st.fin.push(id); n++;
         }
       }
@@ -2696,6 +2703,29 @@ function sincronizarCancelaciones_() {
 }
  
 // ==================== 4. RUTINA Y DISPARADORES ====================
+
+/**
+ * Cada 5 minutos: solo los recordatorios de iniciar / terminar (liviano).
+ * Fuera del horario de todos los barberos no lee nada.
+ */
+function rutinaRecordatorios() {
+  try {
+    var dia = diaSemana_(hoyISO_()), ahora = ahoraMin_(), h = leerHorarios_();
+    var abierto = Object.keys(h).some(function (n) {
+      var x = h[n][dia];
+      return x && ahora >= aMin_(x.abre) && ahora <= aMin_(x.cierra) + SEG_FIN_DIA_MIN + 30;
+    });
+    if (abierto) _tgSeguimiento_();
+  } catch (e) { console.error('recordatorios: ' + e); }
+}
+
+/** Crea el disparador de 5 min si no existe (lo llama la rutina de 15 min). */
+function _asegurarDisparadorRecordatorios_() {
+  var hay = ScriptApp.getProjectTriggers().some(function (t) {
+    return t.getHandlerFunction() === 'rutinaRecordatorios';
+  });
+  if (!hay) ScriptApp.newTrigger('rutinaRecordatorios').timeBased().everyMinutes(5).create();
+}
  
 /** Lo que corre solo cada 15 minutos. No abre ventanas ni pide nada. */
 function rutinaAutomatica() {
@@ -2706,6 +2736,7 @@ function rutinaAutomatica() {
   try { _tgProcesarUpdates_(); }     catch (e) { console.error('tg updates: ' + e); }
   try { _tgRecordatorios_(); }       catch (e) { console.error('tg recordatorios: ' + e); }
   try { _tgSeguimiento_(); }         catch (e) { console.error('tg seguimiento: ' + e); }
+  try { _asegurarDisparadorRecordatorios_(); } catch (e) { console.error('disparador 5 min: ' + e); }
   try {
     var lock = LockService.getScriptLock();
     if (lock.tryLock(10000)) {
@@ -2722,7 +2753,8 @@ function instalarDisparador() {
   _soloDesdeLaHoja_();
   ScriptApp.getProjectTriggers().forEach(function (t) {
     var f = t.getHandlerFunction();
-    if (f === 'rutinaAutomatica' || f === 'volcarAutomatico' || f === 'procesarRespuestasForm') {
+    if (f === 'rutinaAutomatica' || f === 'volcarAutomatico' || f === 'procesarRespuestasForm' ||
+        f === 'rutinaRecordatorios') {
       ScriptApp.deleteTrigger(t);
     }
   });
@@ -2731,13 +2763,18 @@ function instalarDisparador() {
     .timeBased()
     .everyMinutes(15)
     .create();
+  ScriptApp.newTrigger('rutinaRecordatorios')
+    .timeBased()
+    .everyMinutes(5)
+    .create();
  
   SpreadsheetApp.getUi().alert(
     'Automatización instalada.\n\n' +
     'Cada 15 minutos, sin que hagas nada:\n' +
     '· Las citas que ya terminaron pasan al Registro\n' +
     '· Las respuestas del form escriben Estado y Método de pago\n' +
-    '· Las cancelaciones se reflejan en el Registro\n\n' +
+    '· Las cancelaciones se reflejan en el Registro\n' +
+    'Cada 5 minutos: recordatorios por Telegram de servicios sin iniciar o sin cerrar.\n\n' +
     'Ya no tienes que escribir la fecha nunca más.'
   );
 }
@@ -2747,7 +2784,8 @@ function quitarDisparadores() {
   _soloDesdeLaHoja_();
   var n = 0;
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'rutinaAutomatica') { ScriptApp.deleteTrigger(t); n++; }
+    var f = t.getHandlerFunction();
+    if (f === 'rutinaAutomatica' || f === 'rutinaRecordatorios') { ScriptApp.deleteTrigger(t); n++; }
   });
   SpreadsheetApp.getUi().alert('Se quitaron ' + n + ' disparador(es). Volviste al modo manual.');
 }
