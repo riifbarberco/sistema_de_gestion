@@ -84,6 +84,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
   var contServicios = {};   // { 'Nombre servicio': { count, total } }
   var porTrabajador = {};   // { nombre: { categoria, servicios, cobrado, pago, barberia } } (solo atendidos)
   var totalVentas   = 0;    // $ de productos vendidos sin servicio (ventas de mostrador)
+  var porMetodo     = {};   // { 'Bold': { total, n, ventas } } pagado por cada método (sin propinas)
   var nServicios    = 0;    // servicios de verdad (sin contar ventas sueltas)
 
   datos.forEach(function(f) {
@@ -141,11 +142,24 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     // Total cobrado = servicio (con descuento) + productos vendidos. Así
     // Total cobrado + Propinas = Pago barberos + Pago barbería.
     totalCobrado   += total + valorProd;
-    totalComision  += pagoBarbero;   // "pago barbero" = comisión + propina
+    // "pago barbero" = comisión + propina. El dueño lo ve SIN propina: la
+    // propina es del barbero y no pasa por la barbería (solo la ve el barbero).
+    var pagoVisible = (verTodo && atendido) ? Math.max(pagoBarbero - propina, 0) : pagoBarbero;
+    totalComision  += pagoVisible;
     totalPropinas  += propina;
     totalBarberia  += neto;
     totalProductos += valorProd;
     if (esVenta) totalVentas += valorProd;
+
+    // Pagado por método (Bold, Efectivo…): servicio + productos. La propina NO
+    // entra: es del barbero y no tiene que ver con la barbería. Solo atendidos.
+    var recibido = total + valorProd;
+    var nomMetodo = metodo || 'Sin registrar';
+    if (atendido && recibido > 0) {
+      if (!porMetodo[nomMetodo]) porMetodo[nomMetodo] = { total: 0, n: 0, ventas: 0 };
+      porMetodo[nomMetodo].total += recibido;
+      if (esVenta) porMetodo[nomMetodo].ventas++; else porMetodo[nomMetodo].n++;
+    }
 
     // Pago por trabajador (barberos y tatuadores por separado), para que el
     // dueño vea cuánto entra y cuánto se le paga a cada uno.
@@ -156,13 +170,18 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
         try { catPt = categoriaTrabajador_(fBarbero); } catch (e) {}
         pt = porTrabajador[fBarbero] = { nombre: fBarbero, categoria: catPt,
                                          servicios: 0, cobrado: 0, pago: 0, barberia: 0,
-                                         minutos: 0, servicioCobrado: 0 };
+                                         minutos: 0, servicioCobrado: 0, metodos: {} };
+      }
+      if (recibido > 0) {
+        if (!pt.metodos[nomMetodo]) pt.metodos[nomMetodo] = { total: 0, n: 0 };
+        pt.metodos[nomMetodo].total += recibido;
+        pt.metodos[nomMetodo].n++;
       }
       pt.servicios++;
       pt.minutos         += Number(f[20]) || 0;   // col 21 Duración (real si se marcó al cerrar)
       pt.servicioCobrado += total;                // sin productos: para el cobro por hora
       pt.cobrado  += total + valorProd;
-      pt.pago     += pagoBarbero;
+      pt.pago     += pagoVisible;
       pt.barberia += neto;
     }
 
@@ -182,7 +201,7 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
     servicios.push({
       id: citaId,
       fecha: iso, hora: hora, barbero: fBarbero,
-      servicio: nombreSrv, cliente: cliente,
+      servicio: nombreSrv, cliente: cliente, telefono: String(f[4] || '').trim(),
       valor: Number(f[6]) || 0,   // valor del servicio antes del descuento (col G)
       duracion: Number(f[20]) || 0,
       total: total, pagoBarbero: pagoBarbero, neto: neto, valorProductos: valorProd,
@@ -237,6 +256,11 @@ function datosDashboard_(barbero, desde, hasta, verTodo) {
                       if (a.categoria !== b.categoria) return a.categoria === CAT_BARBERIA ? -1 : 1;
                       return b.pago - a.pago;
                     }),
+    // Por método, de mayor a menor.
+    porMetodo:      Object.keys(porMetodo).map(function (k) {
+                      return { metodo: k, total: Math.round(porMetodo[k].total),
+                               n: porMetodo[k].n, ventas: porMetodo[k].ventas };
+                    }).sort(function (a, b) { return b.total - a.total; }),
     servicios:      servicios
   };
 }
@@ -710,6 +734,318 @@ function _filaReserva_(h, id) {
   return null;
 }
 
+// ─────────────────────────────────────────────
+//  SERVICIOS EN CURSO (cronómetro Iniciar → Terminar)
+// ─────────────────────────────────────────────
+// Mientras un servicio está en curso, su hora de inicio vive en una propiedad
+// del script ({ idCita: milisegundos }). Al cerrarlo, los minutos reales van
+// al Registro (col AC "Minutos reales", col AD "Inicio real") y se borra de aquí.
+var PROP_EN_CURSO     = 'riif_en_curso';
+var COL_MIN_REALES    = 29;   // Registro col AC
+var COL_INICIO_REAL   = 30;   // Registro col AD
+
+/** { idCita: ms de inicio } de los servicios en curso (descarta los de más de 18 h). */
+function _enCurso_() {
+  var m = {};
+  try { m = JSON.parse(PropertiesService.getScriptProperties().getProperty(PROP_EN_CURSO) || '{}') || {}; }
+  catch (e) { m = {}; }
+  var limite = Date.now() - 18 * 3600000;
+  Object.keys(m).forEach(function (id) { if (!(Number(m[id]) > limite)) delete m[id]; });
+  return m;
+}
+
+function _guardarEnCurso_(m) {
+  PropertiesService.getScriptProperties().setProperty(PROP_EN_CURSO, JSON.stringify(m || {}));
+}
+
+/** Busca la cita en Reservas y revisa que quien la toca pueda hacerlo. */
+function _citaPropia_(s, id) {
+  var res = _filaReserva_(libro_().getSheetByName(HOJA_RESERVAS), id);
+  if (!res) return { error: 'No encontramos esa cita.' };
+  var barbero = String(res.f[5]).trim();
+  if (s.rol !== 'Dueño' && barbero !== s.nombre) return { error: 'Esa cita es de ' + barbero + '.' };
+  if (String(res.f[12]).trim() === 'Cancelada') return { error: 'Esa cita está cancelada.' };
+  return { res: res };
+}
+
+/** Arranca el cronómetro de una cita. Si ya estaba iniciada, devuelve la hora original. */
+function iniciarServicioDashboard(token, id) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  id = String(id || '').trim();
+  var c = _citaPropia_(s, id);
+  if (c.error) return { ok: false, error: c.error };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); }
+  catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
+  try {
+    var m = _enCurso_();
+    if (!m[id]) m[id] = Date.now();
+    _guardarEnCurso_(m);
+    return { ok: true, inicio: m[id] };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Deshace un "Iniciar" tocado por error. */
+function cancelarInicioDashboard(token, id) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  id = String(id || '').trim();
+  var c = _citaPropia_(s, id);
+  if (c.error) return { ok: false, error: c.error };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); }
+  catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
+  try {
+    var m = _enCurso_();
+    delete m[id];
+    _guardarEnCurso_(m);
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * "Atender ahora": cliente sin cita. Crea la cita a la hora actual (mismo
+ * camino que crearCitaDashboard, con sus validaciones y anti-duplicado) y
+ * arranca el cronómetro de una vez.
+ * d = { servicios:[nombre,...], barbero, cliente, forzar, clave }
+ */
+function atenderAhoraDashboard(token, d) {
+  d = d || {};
+  var ahora = Utilities.formatDate(new Date(), TZ, 'HH:mm');
+  var r = crearCitaDashboard(token, {
+    modo: 'ahora', servicios: d.servicios, barbero: d.barbero,
+    fecha: hoyISO_(), hora: ahora,
+    cliente: d.cliente, telefono: d.telefono, notas: 'Atendido sin cita',
+    forzar: !!d.forzar, clave: d.clave
+  });
+  if (!r || !r.ok || !r.reserva || !r.reserva.id) return r;
+
+  var ini = iniciarServicioDashboard(token, r.reserva.id);
+  r.inicio = ini && ini.ok ? ini.inicio : 0;
+  r.ahora = Date.now();
+  return r;
+}
+
+/** Para que el dashboard sepa qué citas están en curso (al abrir o recargar). */
+function getEnCursoDashboard(token) {
+  try { _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  return { ok: true, enCurso: _enCurso_(), ahora: Date.now() };
+}
+
+// ─────────────────────────────────────────────
+//  DESCUENTOS CONTROLADOS POR EL DUEÑO
+// ─────────────────────────────────────────────
+// Solo para clientes registrados (nombre + teléfono). La hoja "Descuentos"
+// tiene una fila por cliente (llave = últimos 10 dígitos del teléfono):
+//  · Aprobado  → el descuento sale puesto solo con el monto aprobado.
+//  · Pendiente → un barbero dio un descuento nuevo (o distinto): se aplicó de
+//    una vez y el dueño lo aprueba o rechaza en el dashboard. Se avisa una vez.
+//  · Rechazado → se quitó el descuento de esas citas.
+// Lo que da el dueño queda aprobado de una vez.
+var HOJA_DESCUENTOS = 'Descuentos';
+var DESC_ENC = ['Teléfono', 'Cliente', 'Monto aprobado', 'Estado', 'Monto pedido',
+                'Citas pendientes', 'Pedido por', 'Fecha pedido', 'Revisado'];
+
+function _hojaDescuentos_() {
+  var lb = libro_();
+  var h = lb.getSheetByName(HOJA_DESCUENTOS);
+  if (!h) {
+    h = lb.insertSheet(HOJA_DESCUENTOS);
+    h.getRange(1, 1, 1, DESC_ENC.length).setValues([DESC_ENC])
+      .setFontWeight('bold').setBackground('#111111').setFontColor('#FFFFFF');
+    h.getRange('A:A').setNumberFormat('@');
+    h.setFrozenRows(1);
+  }
+  return h;
+}
+
+function _llaveTel_(tel) { return String(tel || '').replace(/\D/g, '').slice(-10); }
+
+/** { llave: { fila, telefono, cliente, aprobado, estado, pedido, citas:[], por, fecha } } */
+function _leerDescuentos_() {
+  var h = _hojaDescuentos_();
+  var mapa = {};
+  if (h.getLastRow() < 2) return mapa;
+  h.getRange(2, 1, h.getLastRow() - 1, DESC_ENC.length).getValues().forEach(function (f, i) {
+    var k = _llaveTel_(f[0]);
+    if (k.length < 7) return;
+    mapa[k] = {
+      fila: i + 2, telefono: String(f[0]).trim(), cliente: String(f[1]).trim(),
+      aprobado: Number(f[2]) || 0, estado: String(f[3]).trim(), pedido: Number(f[4]) || 0,
+      citas: String(f[5] || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean),
+      por: String(f[6]).trim(),
+      fecha: f[7] instanceof Date ? Utilities.formatDate(f[7], TZ, 'yyyy-MM-dd HH:mm') : String(f[7] || '')
+    };
+  });
+  return mapa;
+}
+
+function _guardarDescuento_(h, d) {
+  var fila = [d.telefono, d.cliente, d.aprobado || '', d.estado, d.pedido || '',
+              (d.citas || []).join(', '), d.por || '', d.fecha || '', d.revisado || ''];
+  if (d.fila) h.getRange(d.fila, 1, 1, fila.length).setValues([fila]);
+  else { h.appendRow(fila); d.fila = h.getLastRow(); }
+}
+
+/** ¿El cliente de esta cita de Reservas está registrado (nombre + teléfono)? */
+function _clienteRegistrado_(f) {
+  var nombre = String(f[9] || '').trim();
+  var k = _llaveTel_(f[10]);
+  return (nombre && nombre !== CLIENTE_SIN_NOMBRE && k.length >= 7) ? { nombre: nombre, llave: k, tel: String(f[10]).trim() } : null;
+}
+
+/**
+ * Lo llama cerrarServicioDashboard cuando el descuento CAMBIÓ. Devuelve
+ * { ok } o { ok:false, error }. Si queda pendiente, avisa a los dueños (una vez).
+ */
+function _registrarDescuento_(s, res, id, monto) {
+  if (!(monto > 0)) return { ok: true };
+  var cli = res ? _clienteRegistrado_(res.f) : null;
+  if (!cli) return { ok: false, error: 'El descuento es solo para clientes registrados (con nombre y teléfono).' };
+
+  var h = _hojaDescuentos_();
+  var mapa = _leerDescuentos_();
+  var d = mapa[cli.llave] || { telefono: cli.tel, cliente: cli.nombre, citas: [] };
+  d.cliente = cli.nombre;
+  var ahora = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm');
+
+  if (s.rol === 'Dueño') {                       // lo da el dueño: queda aprobado
+    d.aprobado = monto; d.estado = 'Aprobado'; d.pedido = 0; d.citas = [];
+    d.por = s.nombre; d.revisado = ahora;
+    _guardarDescuento_(h, d);
+    return { ok: true };
+  }
+  if (d.estado === 'Aprobado' && d.aprobado === monto) return { ok: true };   // ya aprobado así
+
+  var yaAvisado = (d.estado === 'Pendiente' && d.pedido === monto);
+  d.estado = 'Pendiente'; d.pedido = monto; d.por = s.nombre; d.fecha = ahora;
+  if (d.citas.indexOf(id) < 0) d.citas.push(id);
+  _guardarDescuento_(h, d);
+
+  if (!yaAvisado) {
+    try {
+      var chats = _tgChats_();
+      var url = _urlDashboard_();
+      var txt = '💸 <b>Descuento por aprobar</b>\n' + _tgEsc_(s.nombre) + ' le dio <b>' + _tgEsc_(pesos_(monto)) +
+        '</b> de descuento a <b>' + _tgEsc_(cli.nombre) + '</b> (' + _tgEsc_(String(res.f[6] || '')) + ').' +
+        (d.aprobado ? '\nAntes tenía aprobado ' + _tgEsc_(pesos_(d.aprobado)) + '.' : '') +
+        '\nYa se aplicó; apruébalo o recházalo en el dashboard (Resumen).' +
+        (url ? '\n👉 <a href="' + url + '">Abrir dashboard</a>' : '');
+      _tgDuenos_().forEach(function (n) { if (chats[n]) _tgEnviar_(chats[n], txt); });
+    } catch (e) { console.error('aviso descuento: ' + e); }
+  }
+  return { ok: true };
+}
+
+/**
+ * Para el dashboard. Todos reciben { aprobados: {llave: monto} } (para poner
+ * el descuento solo); el dueño además la lista completa para revisar.
+ */
+function getDescuentosDashboard(token) {
+  var s;
+  try { s = _sesion(token); } catch (e) { return { ok: false, error: e.message }; }
+  var mapa = _leerDescuentos_();
+  var aprobados = {}, pendientes = [], lista = [];
+  Object.keys(mapa).forEach(function (k) {
+    var d = mapa[k];
+    if (d.aprobado > 0 && d.estado !== 'Rechazado' && d.estado !== 'Quitado') aprobados[k] = d.aprobado;
+    if (s.rol !== 'Dueño') return;
+    var item = { llave: k, cliente: d.cliente, telefono: d.telefono, aprobado: d.aprobado,
+                 estado: d.estado, pedido: d.pedido, citas: d.citas.length, por: d.por, fecha: d.fecha };
+    if (d.estado === 'Pendiente') pendientes.push(item);
+    else if (d.estado === 'Aprobado') lista.push(item);
+  });
+  lista.sort(function (a, b) { return a.cliente < b.cliente ? -1 : 1; });
+  return { ok: true, aprobados: aprobados, pendientes: pendientes, lista: lista };
+}
+
+/**
+ * El dueño decide: 'aprobar' (el monto pedido queda como el aprobado),
+ * 'rechazar' (se quita el descuento de las citas pendientes y se le avisa al
+ * barbero) o 'quitar' (el cliente sale de la lista; lo ya cobrado no se toca).
+ */
+function decidirDescuentoDashboard(token, llave, accion) {
+  var s;
+  try { s = _sesionDueno_(token); } catch (e) { return { ok: false, error: e.message }; }
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); }
+  catch (e) { return { ok: false, error: 'El sistema está ocupado. Intenta de nuevo.' }; }
+  try {
+    var h = _hojaDescuentos_();
+    var d = _leerDescuentos_()[String(llave || '')];
+    if (!d) return { ok: false, error: 'No encontramos ese cliente en Descuentos.' };
+    var ahora = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm');
+
+    if (accion === 'aprobar') {
+      if (d.estado === 'Pendiente') d.aprobado = d.pedido;
+      d.estado = 'Aprobado'; d.pedido = 0; d.citas = []; d.revisado = ahora;
+      _guardarDescuento_(h, d);
+      return { ok: true };
+    }
+
+    if (accion === 'rechazar') {
+      var hg = libro_().getSheetByName('Registro');
+      var filas = idsEnRegistro_();
+      var quitadas = 0;
+      d.citas.forEach(function (id) {
+        var fila = filas[id];
+        if (!fila || !hg) return;
+        // Vuelve al descuento que tenía aprobado (o a ninguno).
+        var valor = Number(hg.getRange(fila, 7).getValue()) || 0;
+        var queda = Math.min(d.aprobado || 0, valor);
+        hg.getRange(fila, 8).setValue(queda);                              // Descuento
+        if (valor > 0) hg.getRange(fila, 9).setValue(Math.max(valor - queda, 0)); // Total
+        _aplicarFormulasComision_(hg, fila);
+        quitadas++;
+      });
+      var barbero = d.por;
+      // Vuelve a lo que tenía aprobado antes (si tenía); si no, queda rechazado.
+      d.estado = d.aprobado > 0 ? 'Aprobado' : 'Rechazado';
+      d.pedido = 0; d.citas = []; d.revisado = ahora;
+      _guardarDescuento_(h, d);
+      try {
+        var chats = _tgChats_();
+        if (barbero && chats[barbero]) {
+          _tgEnviar_(chats[barbero], '❌ <b>Descuento no aprobado</b>\nEl descuento a <b>' + _tgEsc_(d.cliente) +
+            '</b> no fue aprobado' + (quitadas ? (d.aprobado > 0 ? ' y el cobro volvió a ' + _tgEsc_(pesos_(d.aprobado))
+            : ' y se quitó del cobro') : '') + '.');
+        }
+      } catch (e) {}
+      return { ok: true, quitadas: quitadas };
+    }
+
+    if (accion === 'quitar') {
+      d.estado = 'Quitado'; d.aprobado = 0; d.pedido = 0; d.citas = []; d.revisado = ahora;
+      _guardarDescuento_(h, d);
+      return { ok: true };
+    }
+    return { ok: false, error: 'Acción no válida.' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Deja listos los encabezados de las columnas de tiempo real en el Registro. */
+function _asegurarColsTiempoReal_(hg) {
+  if (hg.getMaxColumns() < COL_INICIO_REAL) {
+    hg.insertColumnsAfter(hg.getMaxColumns(), COL_INICIO_REAL - hg.getMaxColumns());
+  }
+  var enc = hg.getRange(1, COL_MIN_REALES, 1, 2);
+  var v = enc.getValues()[0];
+  if (String(v[0]).trim() !== 'Minutos reales' || String(v[1]).trim() !== 'Inicio real') {
+    enc.setValues([['Minutos reales', 'Inicio real']])
+      .setFontWeight('bold').setBackground('#111111').setFontColor('#FFFFFF');
+  }
+}
+
 /**
  * Cierra un servicio desde el dashboard: escribe Estado, Método de pago,
  * Propina y productos en la fila del Registro, y ajusta el inventario.
@@ -766,6 +1102,19 @@ function cerrarServicioDashboard(token, id, datos) {
     // escribir nada, para no dejar un cierre a medias si no aplica.
     var valorFinal = Number(datos.valorFinal);
     var durReal = Math.round(Number(datos.duracionReal) || 0);
+
+    // Cronómetro: si el servicio se inició con "Iniciar", aquí se mide cuánto
+    // duró de verdad. Solo cuenta si se cierra como Atendido.
+    var enCurso = _enCurso_();
+    var inicioMs = Number(enCurso[id]) || 0;
+    var minReales = 0;
+    if (inicioMs && String(datos.estado || '').trim() === 'Atendido') {
+      // Fin = cuando tocó "Terminar" (no cuando terminó de cobrar), si es creíble.
+      var finMs = Number(datos.terminoMs) || 0;
+      if (!(finMs > inicioMs && finMs <= Date.now() + 120000)) finMs = Date.now();
+      minReales = Math.max(1, Math.round((finMs - inicioMs) / 60000));
+    }
+
     if (valorFinal > 0 || durReal > 0) {
       var nombresCat = (datos.servicios && datos.servicios.length)
         ? datos.servicios
@@ -773,6 +1122,19 @@ function cerrarServicioDashboard(token, id, datos) {
       var comboCat = _combinarServicios_(leerConfig_(), nombresCat);
       if (!comboCat.ok || comboCat.categoria !== CAT_TATUAJES) {
         return { ok: false, error: 'El valor final y el tiempo real solo se usan en tatuajes.' };
+      }
+    }
+
+    // Descuento: solo clientes registrados. Se revisa ANTES de escribir nada y
+    // solo si cambió (re-guardar un cierre viejo con su descuento no lo frena).
+    var descNuevo = Number(datos.descuento);
+    if (isNaN(descNuevo) || descNuevo < 0) descNuevo = 0;
+    var descAntes = Number(hg.getRange(fila, 8).getValue()) || 0;
+    var descCambio = descNuevo > 0 && descNuevo !== descAntes;
+    if (descCambio) {
+      var resDesc = _filaReserva_(libro_().getSheetByName(HOJA_RESERVAS), id);
+      if (!resDesc || !_clienteRegistrado_(resDesc.f)) {
+        return { ok: false, error: 'El descuento es solo para clientes registrados (con nombre y teléfono).' };
       }
     }
 
@@ -860,6 +1222,11 @@ function cerrarServicioDashboard(token, id, datos) {
     if (isNaN(desc) || desc < 0) desc = 0;
     hg.getRange(fila, 8).setValue(desc);
     if (valorServ > 0) hg.getRange(fila, 9).setValue(Math.max(valorServ - desc, 0));
+    // Descuento nuevo o distinto: a la lista del dueño (aprobado si lo dio él;
+    // si no, pendiente con aviso por Telegram una sola vez).
+    if (descCambio) {
+      try { _registrarDescuento_(s, res, id, desc); } catch (e) { console.error('descuento: ' + e); }
+    }
 
     // --- Productos: texto en col 22, delta al inventario ---
     // datos.productos = { 'Agua': {v:2, r:0}, 'Gaseosa': {v:1, r:0} }
@@ -883,6 +1250,19 @@ function cerrarServicioDashboard(token, id, datos) {
     // bien y deja la celda en #ERROR!, ver _aplicarFormulasComision_ en Codigo.gs)
     _aplicarFormulasComision_(hg, fila);
 
+    // --- Tiempo real medido con el cronómetro ---
+    if (minReales > 0) {
+      _asegurarColsTiempoReal_(hg);
+      hg.getRange(fila, COL_MIN_REALES, 1, 2).setValues([[
+        minReales, Utilities.formatDate(new Date(inicioMs), TZ, 'HH:mm')
+      ]]);
+    }
+    // Cerrada con cualquier estado: ya no está en curso.
+    if (inicioMs && estado) {
+      delete enCurso[id];
+      _guardarEnCurso_(enCurso);
+    }
+
     // Dejar marcado en Google Calendar que esta cita ya se cerró.
     if (estado && res) {
       var resumen = String(hg.getRange(fila, 6).getValue()).trim() +
@@ -895,7 +1275,7 @@ function cerrarServicioDashboard(token, id, datos) {
       } catch (e) {}
     }
 
-    var salida = { ok: true };
+    var salida = { ok: true, minReales: minReales };
     if (datos.desde && datos.hasta) {
       SpreadsheetApp.flush();
       salida.dashboard = datosDashboard_(
@@ -1155,6 +1535,7 @@ function getAgendaDashboard(token, dias) {
   var limite = Utilities.formatDate(new Date(Date.now() + dias * 86400000), TZ, 'yyyy-MM-dd');
   var datos = h.getRange(2, 1, h.getLastRow() - 1, 16).getValues();
   var citas = [];
+  var estados = _estadosRegistroPorId_();   // para saber cuáles ya se cerraron
 
   datos.forEach(function (f) {
     var id = String(f[0]).trim();
@@ -1169,7 +1550,8 @@ function getAgendaDashboard(token, dias) {
       id: id, fecha: iso, hora: aHHMM_(f[3]), fin: aHHMM_(f[4]),
       barbero: barbero, servicio: String(f[6]).trim(), precio: Number(f[8]) || 0,
       cliente: String(f[9]).trim(), telefono: String(f[10]).trim(),
-      notas: String(f[13]).trim(), estado: String(f[12]).trim()
+      notas: String(f[13]).trim(), estado: String(f[12]).trim(),
+      estadoReal: estados[id] || ''
     });
   });
 
@@ -1177,7 +1559,7 @@ function getAgendaDashboard(token, dias) {
     if (a.fecha !== b.fecha) return a.fecha < b.fecha ? -1 : 1;
     return a.hora < b.hora ? -1 : 1;
   });
-  return { citas: citas };
+  return { citas: citas, enCurso: _enCurso_(), ahora: Date.now() };
 }
 
 /**
@@ -1322,6 +1704,8 @@ function getCalendarioDashboard(token, desde, hasta) {
     eventosManuales: eventosManuales,
     calendarOmitido: calendarOmitido,
     citas: citas,
+    enCurso: _enCurso_(),
+    ahora: Date.now(),
     tiempos: tiempos
   };
 }

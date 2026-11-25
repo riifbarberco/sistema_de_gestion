@@ -250,6 +250,8 @@
     letter-spacing: 1px;
   }
   .kpi.green .num { color: var(--green); }
+  .kpi .sub { font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.4; }
+  .kpi .sub b { color: var(--text); font-weight: 700; }
   .kpi.blue .num { color: var(--blue); }
 
 
@@ -864,6 +866,122 @@
   }
   .cal-month-badge.baja { color: var(--blue); }
   .cal-month-badge.alta { color: var(--gold); }
+
+  /* ──── ATENCIÓN RÁPIDA: Iniciar → cronómetro → Terminar ──── */
+  .btn-grande {
+    width: 100%; border: none; border-radius: 14px; padding: 22px 14px;
+    font-size: 20px; font-weight: 800; letter-spacing: 1px; cursor: pointer;
+    text-transform: uppercase; margin-top: 6px;
+  }
+  .btn-grande:disabled { opacity: .5; cursor: wait; }
+  .btn-iniciar { background: var(--green); color: #000; }
+  .btn-terminar { background: var(--red); color: #fff; }
+  .mr-acciones { display: flex; gap: 8px; margin-top: 12px; }
+  .mr-acciones .btn-logout { flex: 1; padding: 12px; }
+  .mr-link {
+    display: block; width: 100%; background: none; border: none; cursor: pointer;
+    color: var(--text-muted); font-size: 13px; text-decoration: underline;
+    padding: 14px 0 4px;
+  }
+  .mr-reloj {
+    font-size: 56px; font-weight: 800; text-align: center; letter-spacing: 2px;
+    font-variant-numeric: tabular-nums; color: var(--green); margin: 6px 0 2px;
+  }
+  .mr-reloj-sub { text-align: center; font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
+  .mr-duro {
+    text-align: center; font-size: 14px; color: var(--text); margin: 2px 0 14px;
+    background: var(--surface2); border-radius: 8px; padding: 10px;
+  }
+  .mr-metodos { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+  .mr-metodos button {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+    padding: 16px 8px; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  .mr-metodos button.on { background: var(--gold); border-color: var(--gold); color: #000; }
+  .cal-block.st-en-curso {
+    border-left-color: var(--green); background: rgba(76,175,122,0.28);
+    box-shadow: inset 0 0 0 1px var(--green);
+  }
+  .crono { font-style: normal; font-weight: 700; color: var(--green); white-space: nowrap; }
+  .cal-block .crono { display: block; font-size: 10px; }
+  .cal-block.compacta .crono { display: inline; margin-left: 4px; }
+
+  /* ──── AVISO GRANDE: INICIAR / TERMINAR en el centro de la pantalla ──── */
+  .aviso-grande {
+    position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.75);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .aviso-grande[hidden] { display: none; }
+  .ag-caja {
+    width: 100%; max-width: 420px; background: var(--surface); border-radius: 18px;
+    padding: 26px 20px 16px; text-align: center; border: 2px solid var(--green);
+    box-shadow: var(--shadow); animation: ag-entra .25s ease;
+  }
+  .ag-caja.terminar { border-color: var(--red); }
+  @keyframes ag-entra { from { transform: scale(.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .ag-titulo { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; }
+  .ag-cliente { font-size: 26px; font-weight: 800; margin: 10px 0 4px; }
+  .ag-serv { font-size: 15px; color: var(--text-muted); margin-bottom: 18px; }
+  .ag-caja .btn-grande { font-size: 26px; padding: 26px 14px; }
+  .ag-links { display: flex; justify-content: center; gap: 18px; }
+  .ag-links .mr-link { width: auto; }
+
+  /* ──── MI DÍA ──── */
+  .hoy-titulo {
+    font-size: 12px; color: var(--gold); text-transform: uppercase; letter-spacing: 1px;
+    font-weight: 700; margin: 20px 0 8px;
+  }
+  .hoy-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px;
+  }
+  .hoy-card .hoy-info { flex: 1; min-width: 0; cursor: pointer; }
+  .hoy-card .hoy-hora { font-size: 13px; color: var(--text-muted); }
+  .hoy-card .hoy-cliente { font-size: 17px; font-weight: 700; margin: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hoy-card .hoy-serv { font-size: 13px; color: var(--text-muted); }
+  .hoy-card.curso { border-color: var(--green); background: rgba(76,175,122,0.12); }
+  .hoy-card.curso .crono { font-size: 15px; }
+  .hoy-card.proximo { border-color: var(--gold-dim); }
+  .hoy-card.cerrada { opacity: .55; padding: 10px 14px; }
+  .hoy-card.cerrada .hoy-cliente { font-size: 14px; }
+  .hoy-btn {
+    flex: none; border: none; border-radius: 10px; padding: 14px 16px; min-width: 104px;
+    font-size: 15px; font-weight: 800; cursor: pointer; text-transform: uppercase;
+  }
+  .hoy-btn.iniciar { background: var(--green); color: #000; }
+  .hoy-btn.terminar { background: var(--red); color: #fff; }
+  .hoy-btn.suave { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .hoy-vacio { text-align: center; color: var(--text-muted); font-size: 14px; padding: 26px 10px; line-height: 1.5; }
+
+  /* ──── ATENDER AHORA ──── */
+  .ah-servicios { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+  .ah-servicios button {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+    padding: 16px 10px; border-radius: 10px; cursor: pointer; text-align: left; font-family: inherit;
+  }
+  .ah-servicios button b { display: block; font-size: 15px; }
+  .ah-servicios button small { display: block; font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .ah-servicios button:disabled { opacity: .5; }
+  .ah-servicios button.on { border-color: var(--green); background: rgba(76,175,122,0.18); }
+  .ah-servicios button.on b::before { content: '✓ '; color: var(--green); }
+  .ah-servicios button.siempre { grid-column: 1 / -1; border-color: var(--gold); background: rgba(201,168,76,0.12); }
+  .mr-desc-ok {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: rgba(76,175,122,0.12); border: 1px solid var(--green); border-radius: 8px;
+    padding: 10px 12px; font-size: 14px;
+  }
+  .mr-desc-ok button { background: none; border: none; color: var(--text-muted); font-size: 12px;
+    text-decoration: underline; cursor: pointer; }
+  .desc-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .desc-row:last-child { border-bottom: none; }
+  .desc-row .desc-info { flex: 1; min-width: 0; }
+  .desc-row .desc-btns { display: flex; gap: 6px; flex: none; }
+  .desc-row .desc-btns button { border: none; border-radius: 8px; padding: 10px 12px; font-weight: 700; cursor: pointer; font-size: 13px; }
+  .desc-ap { background: var(--green); color: #000; }
+  .desc-re { background: var(--surface2); color: var(--text); border: 1px solid var(--border) !important; }
+  .sig-card { background: var(--surface2); border-radius: 10px; padding: 12px; margin-bottom: 4px; }
+  .sig-card small { display: block; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+  .sig-card b { font-size: 17px; }
 </style>
 </head>
 <body>
@@ -914,8 +1032,8 @@
 
     <!-- Pestañas -->
     <div class="tabbar">
-      <button class="tab on" data-tab="calendario" onclick="verTab('calendario')">Calendario</button>
       <button class="tab" data-tab="citas" onclick="verTab('citas')">Citas</button>
+      <button class="tab on" data-tab="calendario" onclick="verTab('calendario')">Calendario</button>
       <button class="tab" data-tab="resumen" onclick="verTab('resumen')">Resumen</button>
       <button class="tab" data-tab="inventario" id="tab-btn-inventario" hidden onclick="verTab('inventario')">Inventario</button>
       <button class="tab" data-tab="analisis" id="tab-btn-analisis" hidden onclick="verTab('analisis')">Análisis</button>
@@ -968,21 +1086,29 @@
         <div class="num" id="k-tatuador">—</div>
         <div class="lbl">Pago tatuador</div>
       </div>
-      <div class="kpi">
+      <div class="kpi" id="kpi-propinas">
         <div class="num" id="k-propinas">—</div>
         <div class="lbl">Propinas</div>
       </div>
       <div class="kpi blue">
         <div class="num" id="k-total">—</div>
         <div class="lbl">Total cobrado</div>
+        <div class="sub" id="k-total-bold"></div>
       </div>
       <div class="kpi barberia" id="kpi-barberia" style="display:none;">
         <div class="num" id="k-barberia">—</div>
         <div class="lbl">Pago barbería</div>
+        <div class="sub" id="k-barberia-bold"></div>
       </div>
     </div>
 
     <!-- Pago por trabajador (solo dueño): barberos y tatuadores por separado -->
+    <!-- Descuentos (solo dueño): por aprobar y clientes con descuento -->
+    <div class="section" id="sec-descuentos" hidden>
+      <div class="section-title">Descuentos</div>
+      <div id="descuentos-area"></div>
+    </div>
+
     <div class="section" id="sec-equipo" hidden>
       <div class="section-title">Pago por trabajador</div>
       <div id="equipo-area"></div>
@@ -1010,11 +1136,16 @@
     </div>
     </section>
 
-    <!-- ══════ PESTAÑA CITAS ══════ -->
+    <!-- ══════ PESTAÑA CITAS: hoy (Iniciar / Terminar) + próximos días ══════ -->
     <section id="tab-citas" hidden>
-      <button class="btn-primary" onclick="abrirNuevaCita()" style="margin-bottom:10px;">＋ Nueva cita</button>
-      <button class="btn-sec" onclick="abrirVenta()" style="margin-bottom:16px;">🛒 Vender productos</button>
-      <div id="agenda-area"><div class="spinner"></div></div>
+      <button class="btn-grande btn-iniciar" onclick="abrirAhora()">▶ Atender ahora</button>
+      <div class="mr-acciones" style="margin-bottom:6px;">
+        <button class="btn-logout" onclick="abrirNuevaCita()">＋ Agendar cita</button>
+        <button class="btn-logout" onclick="abrirVenta()">🛒 Vender productos</button>
+      </div>
+      <div id="hoy-area"><div class="spinner"></div></div>
+      <div class="hoy-titulo" id="proximos-titulo" hidden>Próximos días</div>
+      <div id="agenda-area"></div>
     </section>
 
     <!-- ══════ PESTAÑA CALENDARIO ══════ -->
@@ -1067,6 +1198,20 @@
   </div>
 </div>
 
+<!-- AVISO GRANDE: es hora de INICIAR o de TERMINAR (solo las citas propias) -->
+<div class="aviso-grande" id="aviso-grande" hidden>
+  <div class="ag-caja" id="ag-caja">
+    <div class="ag-titulo" id="ag-titulo"></div>
+    <div class="ag-cliente" id="ag-cliente"></div>
+    <div class="ag-serv" id="ag-serv"></div>
+    <button class="btn-grande" id="ag-boton" onclick="avisoAccion()"></button>
+    <div class="ag-links">
+      <button class="mr-link" id="ag-novino" onclick="avisoNoVino()">No vino</button>
+      <button class="mr-link" onclick="avisoLuego()">Ahora no</button>
+    </div>
+  </div>
+</div>
+
 <!-- HOJA MODAL: cerrar servicio -->
 <div class="modal-fondo" id="modal-cierre" onclick="if(event.target===this)cerrarModal()">
   <div class="modal-hoja">
@@ -1110,7 +1255,7 @@
       <select id="mc-metodo"></select>
     </div>
 
-    <div class="campo">
+    <div class="campo" id="mc-campo-propina">
       <label>Propina</label>
       <input id="mc-propina" type="number" min="0" step="500" placeholder="0">
     </div>
@@ -1128,6 +1273,97 @@
     <button class="btn-primary" id="mc-guardar" onclick="guardarCierre()">Guardar cierre</button>
     <button class="btn-peligro solo-dueno" style="margin-top:10px;" onclick="eliminarCita(cierreCitaId)">🗑 Borrar definitivamente</button>
     <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- HOJA MODAL: atención rápida (Iniciar → cronómetro → Terminar y cobrar) -->
+<div class="modal-fondo" id="modal-rapido" onclick="if(event.target===this)cerrarRapido()">
+  <div class="modal-hoja">
+    <div class="modal-agarre"></div>
+    <h3 id="mr-cliente">Cliente</h3>
+    <div class="modal-sub" id="mr-sub"></div>
+
+    <div class="modal-error" id="mr-error"></div>
+
+    <!-- 1. Antes de empezar -->
+    <div id="mr-paso-iniciar">
+      <button class="btn-grande btn-iniciar" id="mr-iniciar" onclick="rapidoIniciar()">▶ Iniciar</button>
+      <div class="mr-acciones">
+        <button class="btn-logout" id="mr-novino" onclick="rapidoNoVino()">No vino</button>
+        <button class="btn-logout" onclick="rapidoEditar()">Editar cita</button>
+      </div>
+    </div>
+
+    <!-- 2. En curso -->
+    <div id="mr-paso-curso" hidden>
+      <div class="mr-reloj" id="mr-reloj">00:00</div>
+      <div class="mr-reloj-sub" id="mr-reloj-sub"></div>
+      <button class="btn-grande btn-terminar" onclick="rapidoTerminar()">■ Terminar</button>
+      <button class="mr-link" id="mr-deshacer" onclick="rapidoDeshacer()">Lo inicié por error</button>
+    </div>
+
+    <!-- 3. Cobrar -->
+    <div id="mr-paso-cobro" hidden>
+      <div class="mr-duro" id="mr-duro"></div>
+      <div class="campo">
+        <label>¿Cómo pagó?</label>
+        <div class="mr-metodos" id="mr-metodos"></div>
+      </div>
+      <div class="campo" id="mr-productos"></div>
+      <!-- Descuento: solo clientes registrados. Si ya está aprobado, sale puesto solo. -->
+      <div class="campo" id="mr-campo-desc" hidden>
+        <label>Descuento</label>
+        <div class="mr-desc-ok" id="mr-desc-ok" hidden></div>
+        <button type="button" class="mr-link" id="mr-desc-abrir" style="padding:4px 0;text-align:left;" onclick="rapidoDescEditar()">＋ Dar descuento</button>
+        <div id="mr-desc-editar" hidden>
+          <input id="mr-descuento" type="number" min="0" step="1000" placeholder="$ 0" inputmode="numeric">
+          <div class="serv-resumen" id="mr-desc-nota"></div>
+        </div>
+      </div>
+
+      <!-- Propina: solo la ve y la registra el barbero (no tiene que ver con la barbería) -->
+      <div class="campo" id="mr-campo-propina">
+        <label>Propina <span style="text-transform:none;letter-spacing:0;">(opcional)</span></label>
+        <input id="mr-propina" type="number" min="0" step="500" placeholder="0" inputmode="numeric">
+      </div>
+      <button class="btn-primary" id="mr-listo" onclick="rapidoListo()">✓ Listo</button>
+      <button class="mr-link" onclick="rapidoMasOpciones()">Más opciones (cambiar servicio, cortesías…)</button>
+    </div>
+
+    <!-- 4. Listo → siguiente cliente -->
+    <div id="mr-paso-siguiente" hidden>
+      <div class="mr-duro" id="mr-hecho">✓ Listo</div>
+      <div id="mr-sig-box"></div>
+      <button class="btn-logout" style="width:100%;margin-top:12px;padding:12px;" onclick="cerrarRapido()">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- HOJA MODAL: atender ahora (cliente sin cita) -->
+<div class="modal-fondo" id="modal-ahora" onclick="if(event.target===this)cerrarAhora()">
+  <div class="modal-hoja">
+    <div class="modal-agarre"></div>
+    <h3>Atender ahora</h3>
+    <div class="modal-sub">Marca lo que se va a hacer y dale ▶ Iniciar.</div>
+
+    <div class="modal-error" id="ah-error"></div>
+
+    <div class="campo" id="ah-campo-barbero">
+      <label>¿Quién atiende?</label>
+      <div class="mr-metodos" id="ah-barberos"></div>
+    </div>
+    <div class="campo campo-auto">
+      <label>Cliente <span style="text-transform:none;letter-spacing:0;">(opcional)</span></label>
+      <input id="ah-cliente" type="text" autocomplete="off" placeholder="Nombre o teléfono de un cliente que ya vino">
+      <div class="sugerencias" id="ah-sug" hidden></div>
+      <div class="cliente-conocido" id="ah-cliente-info" hidden></div>
+    </div>
+    <div class="campo">
+      <label>Servicios <span style="text-transform:none;letter-spacing:0;">(marca uno o varios)</span></label>
+      <div class="ah-servicios" id="ah-servicios"></div>
+    </div>
+    <button class="btn-grande btn-iniciar" id="ah-iniciar" hidden onclick="ahIniciarSeleccion()">▶ Iniciar</button>
+    <button class="btn-logout" style="width:100%;margin-top:6px;padding:12px;" onclick="cerrarAhora()">Cancelar</button>
   </div>
 </div>
 
@@ -1309,9 +1545,7 @@
     <div class="campo"><label>Nota</label><textarea id="ed-notas"></textarea></div>
 
     <button class="btn-primary" id="ed-guardar" onclick="guardarEdicion()">Guardar cambios</button>
-    <button class="btn-sec" onclick="cerrarDesdeEdicion()">💰 Cerrar / cobrar este servicio</button>
     <button class="btn-sec" id="ed-avisar" onclick="avisarBarberoCita()">Avisar al barbero por WhatsApp</button>
-    <button class="btn-sec" onclick="marcarNoShow()">🚫 No vino (no show)</button>
     <button class="btn-peligro" onclick="cancelarCitaActual()">Cancelar (el cliente avisó)</button>
     <button class="btn-peligro solo-dueno" style="margin-top:10px;" onclick="eliminarCita(editId)">🗑 Borrar definitivamente</button>
     <button class="btn-logout" style="width:100%;margin-top:10px;padding:12px;" onclick="cerrarEditar()">Cerrar</button>
@@ -1537,6 +1771,7 @@ function entrar() {
 }
 
 function salir() {
+  try { avisoCerrar(); } catch (e) {}
   sessionDel('barbero'); sessionDel('token'); sessionDel('rol');
   cacheBorrarTodo();
   formulariosPrecargados = false; opcionesCierre = null; formCita = null;
@@ -1722,13 +1957,14 @@ function mostrarDashboard() {
   anDatos = null;
   resRef = isoHoy();
   tabActual = '';
-  verTab('calendario');
+  agendaRecibida = false;
+  verTab(rolActual === 'Dueño' ? 'calendario' : 'citas');
 }
 
 /** Lo que cambia según el rol (se llama al entrar y si el rol cambia). */
 function aplicarRolUI() {
   document.getElementById('saludo-fecha').textContent  =
-    (rolActual === 'Dueño' ? 'Vista de administrador · ' : '') + fechaHoyTexto() + ' · v24';
+    (rolActual === 'Dueño' ? 'Vista de administrador · ' : '') + fechaHoyTexto() + ' · v25';
   document.getElementById('tab-btn-inventario').hidden = (rolActual !== 'Dueño');
   document.getElementById('tab-btn-analisis').hidden = false;   // cada barbero ve sus propias métricas
   document.querySelectorAll('.solo-dueno').forEach(function(el) {
@@ -1741,6 +1977,7 @@ var formulariosPrecargados = false;
 function precargarFormularios() {
   if (formulariosPrecargados) return;
   formulariosPrecargados = true;
+  cargarDescuentos();
   if (!opcionesCierre) {
     google.script.run
       .withSuccessHandler(function(o) { opcionesCierre = o; })
@@ -1774,7 +2011,7 @@ function verTab(t) {
   document.getElementById('tab-inventario').hidden = (t !== 'inventario');
   document.getElementById('tab-analisis').hidden   = (t !== 'analisis');
   if (t === 'analisis' && !anDatos) anSetPeriodo(anPeriodo);
-  if (t === 'citas' && !citasCargadas) cargarAgenda();
+  if (t === 'citas') { if (!citasCargadas) cargarAgenda(); else renderMiDia(); }
   if (t === 'calendario' && !calCargado) cargarCalendario();
   // Siempre se relee: el stock se puede haber cambiado en la hoja o por otro cierre.
   if (t === 'inventario') cargarInventario();
@@ -1960,6 +2197,7 @@ function cargarDatos(desde, hasta) {
       if (desde !== desdeActual || hasta !== hastaActual) return;   // ya cambió de período
       cacheGuardar(clave, datos);
       renderDashboard(datos);
+      if (rolActual === 'Dueño') cargarDescuentos();
     })
     .withFailureHandler(function(err) {
       sec.style.opacity = '';
@@ -2007,18 +2245,22 @@ function renderDashboard(d) {
   if (hayTatuador) ponerMonto('k-comision', pagoDe(CAT_BARBERIA));
   ponerMonto('k-tatuador', pagoDe(CAT_TATUAJES));
   document.getElementById('kpi-tatuador').style.display = hayTatuador ? '' : 'none';
-  document.querySelector('.kpi-grid').classList.toggle('seis', hayTatuador);
+  document.getElementById('kpi-propinas').style.display = esDueno ? 'none' : '';
   // Pago barbería = servicios − comisiones + bebidas vendidas. El barbero ve
   // el de sus propios servicios: es lo que le debe entregar a la barbería.
   ponerMonto('k-barberia', d.totalBarberia);
   document.getElementById('kpi-barberia').style.display = '';
-  document.querySelector('.kpi-grid').classList.add('cinco');
+  // 5 cajitas (barbero, o dueño con tatuador) o 4 (dueño sin tatuador).
+  document.querySelector('.kpi-grid').classList.toggle('cinco', !esDueno || hayTatuador);
 
   // Actualizar título del gráfico
   var titulo = filtroActual === 'hoy' ? 'Servicios por hora' :
                filtroActual === 'semana' ? 'Servicios por día de la semana' :
                filtroActual === 'anio' ? 'Servicios por mes' : 'Servicios por día';
   document.getElementById('chart-title').textContent = titulo;
+
+  // Bold: debajo de Total cobrado y de Pago barbería
+  renderMetodos(d.porMetodo || [], d.totalBarberia || 0);
 
   // Pago por trabajador (solo el dueño ve a todos)
   renderEquipo(d.porTrabajador || [], d.totalVentas || 0, esDueno);
@@ -2059,6 +2301,50 @@ function pesos(n) {
  * cada uno con lo que cobró, lo que se le paga y lo que queda para la barbería.
  * Solo cuenta servicios atendidos del período elegido.
  */
+// Método de pago que se muestra aparte en el Resumen.
+var METODO_DESTACADO = 'Bold';
+// Basta con que el nombre lo contenga: en Config se llama "Bold / Datáfono".
+function esMetodoDestacado(m) { return String(m || '').toLowerCase().indexOf(METODO_DESTACADO.toLowerCase()) >= 0; }
+
+/**
+ * Bold, sin propinas:
+ *  · bajo "Total cobrado": cuánto de eso se pagó por Bold y en cuántos servicios;
+ *  · bajo "Pago barbería": cuánto ya está en la cuenta (llegó por Bold) y
+ *    cuánto falta entregar — o, si Bold trajo más que la parte de la
+ *    barbería, cuánto se le debe al barbero.
+ */
+function renderMetodos(lista, pagoBarberia) {
+  var m = lista.filter(function(x) { return esMetodoDestacado(x.metodo); })
+    .reduce(function(a, x) {
+      return { total: a.total + x.total, n: a.n + x.n, ventas: a.ventas + (x.ventas || 0) };
+    }, { total: 0, n: 0, ventas: 0 });
+  var bajoTotal = document.getElementById('k-total-bold');
+  var bajoBarb  = document.getElementById('k-barberia-bold');
+  if (!m.total) { bajoTotal.innerHTML = ''; bajoBarb.innerHTML = ''; return; }
+
+  bajoTotal.innerHTML = esc(METODO_DESTACADO) + ': <b>' + pesosExacto(m.total) + '</b><br>' +
+    m.n + (m.n === 1 ? ' servicio' : ' servicios') +
+    (m.ventas ? ' + ' + m.ventas + (m.ventas === 1 ? ' venta' : ' ventas') : '');
+
+  var dueno = (rolActual === 'Dueño');
+  var enCuenta = Math.min(m.total, pagoBarberia);
+  var falta = Math.round(pagoBarberia - m.total);
+  bajoBarb.innerHTML = 'Ya en cuenta: <b>' + pesosExacto(Math.round(enCuenta)) + '</b><br>' +
+    (falta > 0 ? (dueno ? 'Falta que entreguen: ' : 'Falta entregar: ') + '<b>' + pesosExacto(falta) + '</b>'
+     : falta < 0 ? (dueno ? 'A favor de barberos: ' : 'A tu favor: ') + '<b>' + pesosExacto(-falta) + '</b>'
+     : 'Nada pendiente');
+}
+
+/** "Bold: 6 servicios · $185.000" de un trabajador ('' si no tuvo ninguno). */
+function textoMetodos(metodos) {
+  var m = Object.keys(metodos || {}).filter(esMetodoDestacado)
+    .reduce(function(a, k) { return { total: a.total + metodos[k].total, n: a.n + metodos[k].n }; },
+            { total: 0, n: 0 });
+  if (!m.n && !m.total) return '';
+  return esc(METODO_DESTACADO) + ': ' + m.n + (m.n === 1 ? ' servicio' : ' servicios') +
+    ' · ' + pesosExacto(Math.round(m.total));
+}
+
 function renderEquipo(lista, ventas, esDueno) {
   var sec = document.getElementById('sec-equipo');
   sec.hidden = !esDueno;
@@ -2087,6 +2373,7 @@ function renderEquipo(lista, ventas, esDueno) {
         '<div><div class="eq-nom">' + esc(t.nombre) + '</div>' +
           '<div class="eq-sub">' + t.servicios + (t.servicios === 1 ? ' servicio' : ' servicios') +
           ' · cobrado ' + dinero(t.cobrado) + '</div>' +
+          (textoMetodos(t.metodos) ? '<div class="eq-sub">' + textoMetodos(t.metodos) + '</div>' : '') +
           (t.minutos > 0
             ? '<div class="eq-sub">' + duracionCorta(t.minutos) + ' trabajadas · ' +
               dinero(t.servicioCobrado / (t.minutos / 60)) + ' por hora</div>'
@@ -2165,7 +2452,7 @@ function renderLista() {
     var lineaSrv = esc(s.servicio) + (s.barbero ? ' · ' + esc(s.barbero) : '');
     var bebidas = textoBebidas(s.productos);
     html += '<div class="servicio-row' + tocable + '"' +
-             (s.id ? ' onclick="abrirCierre(' + i + ')"' : '') + '>' +
+             (s.id ? ' onclick="resumenTocar(' + i + ')"' : '') + '>' +
       '<div class="srv-left">' +
         '<div class="srv-fecha">' + fmtFecha(s.fecha) + ' · ' + esc(s.hora) + ' <span class="badge ' + badgeClass + '">' + esc(s.venta ? 'Venta' : s.estado) + '</span></div>' +
         '<div class="srv-nombre">' + esc(s.cliente) + '</div>' +
@@ -2434,7 +2721,7 @@ function abrirCierrePorId(id) {
       pintarCierre({
         id: c.id, servicio: c.servicio, cliente: c.cliente,
         barbero: c.barbero, precio: c.precio, duracion: c.duracion,
-        fecha: c.fecha, hora: c.hora,
+        fecha: c.fecha, hora: c.hora, telefono: c.telefono,
         estado: c.estadoRegistro || 'Pendiente',
         metodo: c.metodoRegistro || '', propina: c.propinaRegistro || 0,
         descuento: c.descuentoRegistro || 0, productos: c.productosRegistro || {}
@@ -2449,8 +2736,10 @@ function abrirCierrePorId(id) {
 }
 
 /** Pinta el modal de cierre con los datos de `s` (mismo shape para las dos entradas de arriba). */
+var cierreBarbero = '';   // de quién es la cita abierta en el cierre completo
 function pintarCierre(s) {
   cierreCitaId = s.id;
+  cierreBarbero = s.barbero || (rolActual === 'Dueño' ? '' : barberoActual);
 
   document.getElementById('mc-titulo').textContent = s.servicio || 'Cerrar servicio';
   document.getElementById('mc-sub').textContent =
@@ -2501,7 +2790,7 @@ function pintarCierre(s) {
   document.getElementById('mc-valor').value = esTat ? (s.valor || s.precio || '') : '';
   document.getElementById('mc-campo-dur').hidden = !esTat;
   if (esTat) {
-    var durIni = Number(s.duracion) || cierreServicios.reduce(function(a, x) { return a + x.duracion; }, 0) || 120;
+    var durIni = cierreDurCrono || Number(s.duracion) || cierreServicios.reduce(function(a, x) { return a + x.duracion; }, 0) || 120;
     var selH = document.getElementById('mc-dur-h'), selM = document.getElementById('mc-dur-m');
     selH.innerHTML = ''; selM.innerHTML = '';
     for (var h = 0; h <= 12; h++) {
@@ -2519,16 +2808,21 @@ function pintarCierre(s) {
   // Método de pago
   var selM = document.getElementById('mc-metodo');
   selM.innerHTML = '<option value="">— Sin registrar —</option>';
-  opcionesCierre.metodos.forEach(function(m) {
+  ordenarPorUso(opcionesCierre.metodos, usoMetodos(s.barbero)).forEach(function(m) {
     var o = document.createElement('option');
     o.value = m; o.textContent = m;
     if (m === s.metodo) o.selected = true;
     selM.appendChild(o);
   });
 
-  // Propina y descuento
+  // Propina y descuento. La propina solo la ve el barbero; para el dueño el
+  // campo se esconde pero conserva lo que tenía (no se borra al guardar).
   document.getElementById('mc-propina').value = s.propina ? s.propina : '';
-  document.getElementById('mc-descuento').value = s.descuento ? s.descuento : '';
+  document.getElementById('mc-campo-propina').hidden = (rolActual === 'Dueño');
+  // Sin cerrar todavía y con descuento aprobado: sale puesto solo.
+  var descAp = descAprobados[llaveTel(s.telefono)] || 0;
+  var sinCerrar = !s.estado || s.estado === 'Pendiente';
+  document.getElementById('mc-descuento').value = s.descuento ? s.descuento : (sinCerrar && descAp ? descAp : '');
 
   // Productos (dinámico: lo que haya en el inventario)
   var prodBox = document.getElementById('mc-productos');
@@ -2699,10 +2993,968 @@ function cerrarModal() {
   cierreIdx = -1;
   cierreCitaId = '';
   cierrePorIdEnCurso = '';
+  cierreDurCrono = 0;
+  cierreTerminoMs = 0;
+}
+
+// ─────────────────────────────────────────────
+//  ATENCIÓN RÁPIDA — Iniciar → cronómetro → Terminar y cobrar
+// ─────────────────────────────────────────────
+// Tocar una cita de hoy que sigue pendiente abre una hoja corta: "Iniciar"
+// arranca el cronómetro (la hora queda en el servidor, así sobrevive a
+// recargas y se ve desde otro celular); "Terminar" pasa a cobrar: método de
+// pago con un toque, productos si consumió algo, y Listo. Los minutos reales
+// quedan en el Registro para medir cuánto dura cada servicio.
+var enCurso        = {};   // { idCita: ms de inicio (hora del servidor) }
+var relojDesfase   = 0;    // hora del servidor − hora de este celular (ms)
+var rapidoCita     = null; // cita abierta en la hoja rápida
+var rapidoMetodo   = '';
+var rapidoFinMs    = 0;    // cuándo se tocó "Terminar" (hora del servidor)
+var rapidoTic      = null; // intervalo del reloj grande
+var rapidoSig      = null; // siguiente cita que se ofrece al terminar
+var rapidoDesc     = 0;    // descuento que va en el cobro rápido (aprobado o escrito)
+var rapidoDescEdit = false;// el barbero abrió el campo para escribir el monto
+var descAprobados  = {};   // { últimos 10 dígitos del teléfono: monto aprobado }
+var cierreDurCrono = 0;    // tatuaje: minutos del cronómetro para prellenar el cierre completo
+var cierreTerminoMs = 0;   // cierre completo abierto desde "Terminar": fin del cronómetro
+var ESTADOS_CERRADOS = ['Atendido', 'No asistió', 'Cancelado'];
+
+function ahoraServidor() { return Date.now() + relojDesfase; }
+
+/** Toma el mapa de servicios en curso que mandó el servidor (agenda/calendario). */
+function absorberEnCurso(r) {
+  if (!r || !r.enCurso) return;
+  enCurso = r.enCurso;
+  if (r.ahora) relojDesfase = r.ahora - Date.now();
+}
+
+function minutosDesde(ms) { return Math.max(0, Math.floor((ahoraServidor() - ms) / 60000)); }
+
+function relojTexto(ms) {
+  var seg = Math.max(0, Math.floor((ahoraServidor() - ms) / 1000));
+  var h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60), s = seg % 60;
+  function d(n) { return ('0' + n).slice(-2); }
+  return (h ? h + ':' + d(m) : d(m)) + ':' + d(s);
+}
+
+function horaDeMs(ms) {
+  var d = new Date(ms - relojDesfase);
+  return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+}
+
+/** Etiqueta "⏱ 12 min" para el calendario y la agenda. */
+function cronoHtml(id) {
+  var ini = enCurso[id];
+  if (!ini) return '';
+  return '<em class="crono" data-inicio="' + ini + '">⏱ ' + minutosDesde(ini) + ' min</em>';
+}
+
+// Los "⏱ N min" que estén a la vista se actualizan cada 30 s.
+setInterval(function() {
+  document.querySelectorAll('.crono[data-inicio]').forEach(function(el) {
+    el.textContent = '⏱ ' + minutosDesde(Number(el.getAttribute('data-inicio'))) + ' min';
+  });
+}, 30000);
+
+/** ¿Se atiende con la hoja rápida? De hoy, sin cerrar, y propia (o el dueño). */
+function citaParaRapido(c) {
+  if (!c || !c.id || c.fecha !== isoHoy()) return false;
+  if (c.estadoReserva === 'Cancelada') return false;
+  if (ESTADOS_CERRADOS.indexOf(c.estadoReal || '') >= 0) return false;
+  return rolActual === 'Dueño' || c.barbero === barberoActual;
+}
+
+/** Tocar una cita: hoja rápida si aplica; si no, `otro()` (lo de siempre). */
+function tocarCita(c, otro) {
+  if (citaParaRapido(c)) abrirRapido(c);
+  else otro();
+}
+
+function resumenTocar(i) {
+  var s = todosServicios[i];
+  if (!s || s.venta) { abrirCierre(i); return; }
+  tocarCita({
+    id: s.id, fecha: s.fecha, hora: s.hora, cliente: s.cliente, servicio: s.servicio, telefono: s.telefono,
+    barbero: s.barbero || (rolActual === 'Dueño' ? '' : barberoActual),
+    estadoReal: (s.estado === 'Pendiente') ? '' : s.estado
+  }, function() { abrirCierre(i); });
+}
+
+function esTatuajeCita(c) {
+  var cat = ((opcionesCierre && opcionesCierre.servicios) || [])
+    .concat((formCita && formCita.servicios) || []);
+  var nombre = String(c.servicio || '').split(SEPARADOR_COMBO)[0].trim();
+  var srv = cat.filter(function(x) { return x.nombre === nombre; })[0];
+  if (srv) return catDe(srv) === CAT_TATUAJES;
+  return catTrabajador(c.barbero) === CAT_TATUAJES;
+}
+
+function abrirRapido(c) {
+  rapidoCita = c; rapidoMetodo = ''; rapidoFinMs = 0;
+  document.getElementById('mr-cliente').textContent = c.cliente || 'Cliente';
+  document.getElementById('mr-sub').textContent = c.hora + ' · ' + (c.servicio || '') +
+    (rolActual === 'Dueño' && c.barbero ? ' · ' + c.barbero : '');
+  limpiarError(document.getElementById('mr-error'));
+  document.getElementById('mr-iniciar').disabled = false;
+  document.getElementById('mr-novino').disabled = false;
+  rapidoPaso(enCurso[c.id] ? 'curso' : 'iniciar');
+  document.getElementById('modal-rapido').classList.add('abierto');
+  if (clienteRegistrado(c)) cargarDescuentos();   // por si el dueño aprobó hace poco
+  // Métodos y productos se necesitan al cobrar: se traen desde ya, por detrás.
+  if (!opcionesCierre) {
+    google.script.run
+      .withSuccessHandler(function(o) { opcionesCierre = o || OPCIONES_DEFAULT; })
+      .withFailureHandler(function() { opcionesCierre = OPCIONES_DEFAULT; })
+      .getOpcionesCierre();
+  }
+}
+
+function cerrarRapido() {
+  document.getElementById('modal-rapido').classList.remove('abierto');
+  if (rapidoTic) { clearInterval(rapidoTic); rapidoTic = null; }
+  rapidoCita = null;
+}
+
+function rapidoPaso(p) {
+  document.getElementById('mr-paso-iniciar').hidden = (p !== 'iniciar');
+  document.getElementById('mr-paso-curso').hidden = (p !== 'curso');
+  document.getElementById('mr-paso-cobro').hidden = (p !== 'cobro');
+  document.getElementById('mr-paso-siguiente').hidden = (p !== 'siguiente');
+  if (rapidoTic) { clearInterval(rapidoTic); rapidoTic = null; }
+  if (p === 'curso' && rapidoCita) {
+    var ini = enCurso[rapidoCita.id];
+    var pintar = function() {
+      if (!rapidoCita || !enCurso[rapidoCita.id]) return;
+      document.getElementById('mr-reloj').textContent = relojTexto(enCurso[rapidoCita.id]);
+    };
+    document.getElementById('mr-reloj-sub').textContent = 'Empezó a las ' + horaDeMs(ini);
+    pintar();
+    rapidoTic = setInterval(pintar, 1000);
+  }
+}
+
+/** Repinta lo que esté a la vista para que se vea el cambio de una. */
+function rapidoRepintar() {
+  if (tabActual === 'calendario' && calDatos && !calArrastre) calRender();
+  if (citasCargadas && agendaCitas.length) renderAgenda();
+  renderMiDia();
+}
+
+/**
+ * Arranca el cronómetro de `c` (optimista: se ve de una; el servidor confirma
+ * la hora oficial). `alFallar(msg)` deshace lo que haya mostrado quien llama.
+ */
+function iniciarDirecto(c, alFallar) {
+  var id = c.id;
+  enCurso[id] = ahoraServidor();
+  rapidoRepintar();
+  function fallo(msg) {
+    delete enCurso[id];
+    rapidoRepintar();
+    if (alFallar) alFallar(msg); else alert(msg);
+  }
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || !r.ok) {
+        var msg = (r && r.error) || 'No se pudo iniciar.';
+        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
+        fallo(msg);
+        return;
+      }
+      enCurso[id] = r.inicio;
+      if (rapidoCita && rapidoCita.id === id && !document.getElementById('mr-paso-curso').hidden) rapidoPaso('curso');
+      rapidoRepintar();
+    })
+    .withFailureHandler(function() { fallo('No se pudo iniciar. Revisa tu conexión.'); })
+    .iniciarServicioDashboard(tokenActual, id);
+}
+
+function rapidoIniciar() {
+  if (!rapidoCita) return;
+  var id = rapidoCita.id;
+  var errBox = document.getElementById('mr-error');
+  limpiarError(errBox);
+  enCurso[id] = ahoraServidor();
+  rapidoPaso('curso');
+  iniciarDirecto(rapidoCita, function(msg) {
+    if (rapidoCita && rapidoCita.id === id) { rapidoPaso('iniciar'); mostrarError(errBox, msg); }
+    else alert(msg);
+  });
+}
+
+function rapidoDeshacer() {
+  if (!rapidoCita) return;
+  var id = rapidoCita.id, ini = enCurso[id];
+  delete enCurso[id];
+  rapidoPaso('iniciar');
+  rapidoRepintar();
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.ok) return;
+      enCurso[id] = ini;
+      rapidoRepintar();
+      alert((r && r.error) || 'No se pudo deshacer el inicio.');
+    })
+    .withFailureHandler(function() {
+      enCurso[id] = ini;
+      rapidoRepintar();
+      alert('No se pudo deshacer el inicio. Revisa tu conexión.');
+    })
+    .cancelarInicioDashboard(tokenActual, id);
+}
+
+function rapidoTerminar() {
+  if (!rapidoCita) return;
+  var c = rapidoCita;
+  var ini = enCurso[c.id];
+  rapidoFinMs = ahoraServidor();
+  var min = ini ? Math.max(1, Math.round((rapidoFinMs - ini) / 60000)) : 0;
+
+  // Tatuaje: lleva valor final y más datos → cierre completo con el tiempo ya puesto.
+  if (esTatuajeCita(c)) {
+    var fin = rapidoFinMs;
+    cerrarRapido();
+    cierreDurCrono = min;
+    cierreTerminoMs = fin;
+    abrirCierrePorId(c.id);
+    return;
+  }
+
+  if (rapidoTic) { clearInterval(rapidoTic); rapidoTic = null; }
+  document.getElementById('mr-duro').innerHTML = min
+    ? 'Duró <b>' + duracionCorta(min) + '</b> · empezó ' + horaDeMs(ini)
+    : 'Servicio terminado';
+  document.getElementById('mr-propina').value = '';
+  document.getElementById('mr-campo-propina').hidden = (rolActual === 'Dueño');
+  rapidoPrepararDesc(c);
+  limpiarError(document.getElementById('mr-error'));
+
+  var pintarCobro = function() {
+    var box = document.getElementById('mr-metodos');
+    box.innerHTML = '';
+    ordenarPorUso(opcionesCierre.metodos || [], usoMetodos(c.barbero)).forEach(function(m) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = m;
+      b.onclick = function() {
+        rapidoMetodo = m;
+        Array.prototype.forEach.call(box.children, function(x) { x.className = (x === b) ? 'on' : ''; });
+      };
+      box.appendChild(b);
+    });
+    var prodBox = document.getElementById('mr-productos');
+    prodBox.innerHTML = '';
+    var lista = opcionesCierre.productos || [];
+    if (lista.length) {
+      prodBox.innerHTML = '<label>¿Consumió algo?</label>';
+      lista.forEach(function(p) { prodBox.appendChild(filaProducto(p.nombre, p.precio, 0, 0)); });
+    }
+    prodBox.hidden = !lista.length;
+    rapidoPaso('cobro');
+  };
+  if (opcionesCierre) { pintarCobro(); return; }
+  google.script.run
+    .withSuccessHandler(function(o) { opcionesCierre = o || OPCIONES_DEFAULT; pintarCobro(); })
+    .withFailureHandler(function() { opcionesCierre = OPCIONES_DEFAULT; pintarCobro(); })
+    .getOpcionesCierre();
+}
+
+/** Marca localmente una cita como cerrada (antes de que llegue la recarga). */
+function rapidoMarcarCerrada(id, estado) {
+  delete enCurso[id];
+  ((calDatos && calDatos.citas) || []).forEach(function(x) { if (x.id === id) x.estadoReal = estado; });
+  agendaCitas.forEach(function(x) { if (x.id === id) x.estadoReal = estado; });
+}
+
+/** Cierre rápido (Listo / No vino) contra el mismo backend del cierre completo. */
+function rapidoCerrar(datos, btn, textoBtn) {
+  var c = rapidoCita;
+  if (!c) return;
+  var errBox = document.getElementById('mr-error');
+  limpiarError(errBox);
+  datos.desde = desdeActual;
+  datos.hasta = hastaActual;
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  var respondio = false;
+  var reloj = setTimeout(function() {
+    if (respondio) return;
+    btn.disabled = false; btn.textContent = textoBtn;
+    mostrarError(errBox, 'El servidor está tardando. Revisa si quedó guardado antes de repetir.');
+  }, 20000);
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      respondio = true; clearTimeout(reloj);
+      btn.disabled = false; btn.textContent = textoBtn;
+      if (!r || !r.ok) {
+        var msg = (r && r.error) || 'No se pudo guardar.';
+        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
+        mostrarError(errBox, msg);
+        return;
+      }
+      rapidoMarcarCerrada(c.id, datos.estado);
+      if (datos.estado === 'Atendido') {
+        var hechos = datos.servicios ||
+          String(c.servicio || '').split(SEPARADOR_COMBO).map(function(n) { return n.trim(); });
+        sumarUso(c.barbero, hechos);
+        if (datos.metodo) sumarUsoMetodo(c.barbero, datos.metodo);
+        rapidoMostrarSiguiente(c, r.minReales);
+      } else {
+        cerrarRapido();
+      }
+      rapidoRepintar();
+      if (tabActual === 'citas') cargarAgenda();
+      else citasCargadas = false;
+      calInvalidate();
+      if (r.dashboard) renderDashboard(r.dashboard);
+      else cargarDatos(desdeActual, hastaActual);
+    })
+    .withFailureHandler(function(e) {
+      respondio = true; clearTimeout(reloj);
+      btn.disabled = false; btn.textContent = textoBtn;
+      mostrarError(errBox, 'No se pudo guardar: ' + ((e && e.message) || 'revisa tu conexión') + '.');
+    })
+    .cerrarServicioDashboard(tokenActual, c.id, datos);
+}
+
+function rapidoListo() {
+  if (!rapidoMetodo) { mostrarError(document.getElementById('mr-error'), 'Toca cómo pagó.'); return; }
+  var productos = {};
+  document.querySelectorAll('#mr-productos b[data-prod]').forEach(function(b) {
+    var n = b.getAttribute('data-prod');
+    if (!productos[n]) productos[n] = { v: 0, r: 0 };
+    productos[n][b.getAttribute('data-tipo')] = parseInt(b.textContent, 10) || 0;
+  });
+  var propina = parseInt(document.getElementById('mr-propina').value, 10) || 0;
+  if (propina < 0) propina = 0;
+  var datos = {
+    estado: 'Atendido', metodo: rapidoMetodo, propina: propina, descuento: rapidoDescMonto(),
+    productos: productos, terminoMs: rapidoFinMs
+  };
+  rapidoCerrar(datos, document.getElementById('mr-listo'), '✓ Listo');
+}
+
+function rapidoNoVino() {
+  if (!rapidoCita) return;
+  if (!confirm('¿Marcar que ' + (rapidoCita.cliente || 'el cliente') + ' no vino?')) return;
+  rapidoCerrar({ estado: 'No asistió', propina: 0, descuento: 0, productos: {} },
+               document.getElementById('mr-novino'), 'No vino');
+}
+
+function rapidoEditar() {
+  if (!rapidoCita) return;
+  var id = rapidoCita.id;
+  cerrarRapido();
+  abrirEditar(id);
+}
+
+function rapidoMasOpciones() {
+  if (!rapidoCita) return;
+  var id = rapidoCita.id, fin = rapidoFinMs;
+  cerrarRapido();
+  cierreTerminoMs = fin;
+  abrirCierrePorId(id);
+}
+
+// ─────────────────────────────────────────────
+//  DESCUENTOS — solo clientes registrados; el dueño aprueba
+// ─────────────────────────────────────────────
+function llaveTel(t) { return String(t || '').replace(/\D/g, '').slice(-10); }
+
+function clienteRegistrado(c) {
+  var n = String((c && c.cliente) || '').trim();
+  return llaveTel(c && c.telefono).length >= 7 && n && n !== 'Sin nombre' && n !== 'Cliente';
+}
+
+/** Trae los descuentos aprobados (y, para el dueño, la lista para revisar). */
+function cargarDescuentos(alLlegar) {
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || !r.ok) return;
+      descAprobados = r.aprobados || {};
+      if (rolActual === 'Dueño') renderDescuentos(r);
+      if (alLlegar) alLlegar();
+    })
+    .withFailureHandler(function() {})
+    .getDescuentosDashboard(tokenActual);
+}
+
+/** Cobro: si el cliente tiene descuento aprobado, sale puesto solo; si no, "＋ Dar descuento". */
+function rapidoPrepararDesc(c) {
+  rapidoDesc = 0; rapidoDescEdit = false;
+  var campo = document.getElementById('mr-campo-desc');
+  campo.hidden = !clienteRegistrado(c);
+  if (campo.hidden) return;
+  var ap = descAprobados[llaveTel(c.telefono)] || 0;
+  document.getElementById('mr-desc-editar').hidden = true;
+  document.getElementById('mr-descuento').value = '';
+  if (ap > 0) {
+    rapidoDesc = ap;
+    var ok = document.getElementById('mr-desc-ok');
+    ok.innerHTML = '<span>🏷️ Descuento aprobado <b>' + pesosExacto(ap) + '</b></span>' +
+      '<span><button type="button" onclick="rapidoDescEditar()">Cambiar</button> ' +
+      '<button type="button" onclick="rapidoDescQuitar()">Quitar</button></span>';
+    ok.hidden = false;
+    document.getElementById('mr-desc-abrir').hidden = true;
+  } else {
+    document.getElementById('mr-desc-ok').hidden = true;
+    document.getElementById('mr-desc-abrir').hidden = false;
+  }
+}
+
+function rapidoDescEditar() {
+  rapidoDescEdit = true;
+  document.getElementById('mr-desc-ok').hidden = true;
+  document.getElementById('mr-desc-abrir').hidden = true;
+  document.getElementById('mr-desc-editar').hidden = false;
+  var input = document.getElementById('mr-descuento');
+  input.value = rapidoDesc || '';
+  document.getElementById('mr-desc-nota').textContent = (rolActual === 'Dueño')
+    ? 'Queda aprobado: la próxima vez a este cliente le sale puesto solo.'
+    : 'Se aplica ya. Le llega al dueño para aprobarlo; cuando lo apruebe, la próxima vez sale puesto solo.';
+  input.focus();
+}
+
+function rapidoDescQuitar() {
+  rapidoDesc = 0; rapidoDescEdit = false;
+  document.getElementById('mr-desc-ok').hidden = true;
+  document.getElementById('mr-desc-editar').hidden = true;
+  document.getElementById('mr-desc-abrir').hidden = false;
+}
+
+function rapidoDescMonto() {
+  if (document.getElementById('mr-campo-desc').hidden) return 0;
+  if (rapidoDescEdit) {
+    var v = parseInt(document.getElementById('mr-descuento').value, 10) || 0;
+    return v > 0 ? v : 0;
+  }
+  return rapidoDesc;
+}
+
+/** Resumen del dueño: descuentos por aprobar y clientes con descuento. */
+function renderDescuentos(r) {
+  var sec = document.getElementById('sec-descuentos');
+  var pend = r.pendientes || [], lista = r.lista || [];
+  sec.hidden = !(pend.length || lista.length);
+  if (sec.hidden) return;
+  var html = '';
+  if (pend.length) {
+    html += '<div class="eq-cat"><span>💸 Por aprobar (' + pend.length + ')</span><span></span></div>';
+    pend.forEach(function(d) {
+      html += '<div class="desc-row"><div class="desc-info">' +
+        '<div class="eq-nom">' + esc(d.cliente) + ' · ' + pesosExacto(d.pedido) + '</div>' +
+        '<div class="eq-sub">Lo dio ' + esc(d.por || '—') + ' · ' + d.citas + (d.citas === 1 ? ' cita' : ' citas') +
+        (d.aprobado ? ' · antes tenía ' + pesosExacto(d.aprobado) : '') + '</div></div>' +
+        '<div class="desc-btns"><button class="desc-ap" onclick="decidirDescuento(\'' + esc(d.llave) + '\',\'aprobar\')">✓ Aprobar</button>' +
+        '<button class="desc-re" onclick="decidirDescuento(\'' + esc(d.llave) + '\',\'rechazar\')">✕</button></div></div>';
+    });
+  }
+  if (lista.length) {
+    html += '<details style="margin-top:8px;"><summary class="eq-sub" style="cursor:pointer;padding:6px 0;">' +
+      'Clientes con descuento aprobado (' + lista.length + ')</summary>';
+    lista.forEach(function(d) {
+      html += '<div class="desc-row"><div class="desc-info">' +
+        '<div class="eq-nom">' + esc(d.cliente) + ' · ' + pesosExacto(d.aprobado) + '</div>' +
+        '<div class="eq-sub">' + esc(d.telefono) + '</div></div>' +
+        '<div class="desc-btns"><button class="desc-re" onclick="decidirDescuento(\'' + esc(d.llave) + '\',\'quitar\')">Quitar</button></div></div>';
+    });
+    html += '</details>';
+  }
+  document.getElementById('descuentos-area').innerHTML = html;
+}
+
+function decidirDescuento(llave, accion) {
+  if (accion === 'rechazar' && !confirm('¿Rechazar este descuento? Se le quita de las citas donde se aplicó y le avisa al barbero.')) return;
+  if (accion === 'quitar' && !confirm('¿Quitar a este cliente de la lista de descuentos? Lo ya cobrado no cambia.')) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || !r.ok) { alert((r && r.error) || 'No se pudo guardar.'); return; }
+      cargarDescuentos();
+      if (accion === 'rechazar') cargarDatos(desdeActual, hastaActual);
+    })
+    .withFailureHandler(function() { alert('No se pudo guardar. Revisa tu conexión.'); })
+    .decidirDescuentoDashboard(tokenActual, llave, accion);
+}
+
+// ─────────────────────────────────────────────
+//  AVISO GRANDE — "▶ INICIAR" / "■ TERMINAR" en el centro de la pantalla
+// ─────────────────────────────────────────────
+// Mismo criterio que el recordatorio de Telegram: 5 min después de la hora de
+// la cita sin iniciar, o 5 min después de que debía terminar el servicio.
+// Solo para las citas de quien está conectado. "Ahora no" lo calla 10 min.
+var AVISO_INICIAR_MIN  = 5;
+var AVISO_TERMINAR_MIN = 5;
+var avisoCita   = null;
+var avisoTipo   = '';    // 'iniciar' | 'terminar'
+var avisoCalla  = {};    // { idCita+tipo: ms hasta cuándo no se muestra }
+var agendaCargadaEn = 0;
+
+function minutosAhora() {
+  var d = new Date(ahoraServidor());
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+function hayHojaAbierta() {
+  return !!document.querySelector('.modal-fondo.abierto');
+}
+
+function avisoRevisar() {
+  if (!tokenActual || document.getElementById('dashboard-screen').style.display === 'none') return;
+  // La agenda se refresca sola cada 5 min (citas nuevas desde la web, etc.).
+  if (agendaRecibida && Date.now() - agendaCargadaEn > 300000 && !hayHojaAbierta()) cargarAgenda();
+  if (!agendaRecibida && !calDatos) return;
+  if (!document.getElementById('aviso-grande').hidden || hayHojaAbierta()) return;
+
+  var ahora = minutosAhora(), ms = Date.now();
+  var mias = citasHoy().filter(function(c) {
+    return c.barbero === barberoActual && ESTADOS_CERRADOS.indexOf(c.estadoReal || '') < 0;
+  });
+  var callado = function(c, t) { return (avisoCalla[c.id + t] || 0) > ms; };
+  var durDe = function(c) {
+    var ini = calHoraAMin(c.hora), fin = calHoraAMin(c.fin);
+    return (fin !== null && ini !== null && fin > ini) ? fin - ini : (Number(c.duracion) || 30);
+  };
+
+  // Primero: lo que ya debía terminar
+  var term = mias.filter(function(c) {
+    var ini = enCurso[c.id];
+    return ini && !callado(c, 't') && (ahoraServidor() - ini) / 60000 >= durDe(c) + AVISO_TERMINAR_MIN;
+  })[0];
+  if (term) { avisoMostrar(term, 'terminar'); return; }
+
+  // Después: lo que ya debía empezar
+  var inic = mias.filter(function(c) {
+    if (enCurso[c.id] || callado(c, 'i')) return false;
+    var ini = calHoraAMin(c.hora);
+    return ini !== null && ahora >= ini + AVISO_INICIAR_MIN && ahora <= ini + durDe(c) + 120;
+  })[0];
+  if (inic) avisoMostrar(inic, 'iniciar');
+}
+
+function avisoMostrar(c, tipo) {
+  avisoCita = c; avisoTipo = tipo;
+  var caja = document.getElementById('ag-caja');
+  caja.className = 'ag-caja' + (tipo === 'terminar' ? ' terminar' : '');
+  document.getElementById('ag-titulo').textContent = tipo === 'terminar'
+    ? '⏱ Ya debía terminar · lleva ' + minutosDesde(enCurso[c.id]) + ' min'
+    : '⏰ Cita de las ' + c.hora + ' · sin iniciar';
+  document.getElementById('ag-cliente').textContent = c.cliente || 'Cliente';
+  document.getElementById('ag-serv').textContent = c.servicio || '';
+  var b = document.getElementById('ag-boton');
+  b.className = 'btn-grande ' + (tipo === 'terminar' ? 'btn-terminar' : 'btn-iniciar');
+  b.textContent = tipo === 'terminar' ? '■ TERMINAR' : '▶ INICIAR';
+  document.getElementById('ag-novino').hidden = (tipo === 'terminar');
+  document.getElementById('aviso-grande').hidden = false;
+  try { if (navigator.vibrate) navigator.vibrate(200); } catch (e) {}
+}
+
+function avisoCerrar() {
+  document.getElementById('aviso-grande').hidden = true;
+  avisoCita = null;
+}
+
+function avisoAccion() {
+  var c = avisoCita, tipo = avisoTipo;
+  avisoCerrar();
+  if (!c) return;
+  if (tipo === 'terminar') hoyTerminar(c.id);
+  else iniciarDirecto(c);
+}
+
+function avisoNoVino() {
+  var c = avisoCita;
+  avisoCerrar();
+  if (!c) return;
+  abrirRapido(c);
+  rapidoNoVino();
+}
+
+function avisoLuego() {
+  if (avisoCita) avisoCalla[avisoCita.id + (avisoTipo === 'terminar' ? 't' : 'i')] = Date.now() + 10 * 60000;
+  avisoCerrar();
+}
+
+setInterval(avisoRevisar, 30000);
+
+/** Próxima cita pendiente de hoy del mismo barbero (sin iniciar ni cerrar). */
+function siguienteDe(c) {
+  return citasHoy().filter(function(x) {
+    return x.id !== c.id && x.barbero === c.barbero && !enCurso[x.id] &&
+           ESTADOS_CERRADOS.indexOf(x.estadoReal || '') < 0;
+  })[0] || null;
+}
+
+function rapidoMostrarSiguiente(c, minReales) {
+  rapidoSig = siguienteDe(c);
+  document.getElementById('mr-hecho').innerHTML = '✓ Listo' +
+    (minReales ? ' · duró <b>' + duracionCorta(minReales) + '</b>' : '');
+  var html = '';
+  if (rapidoSig) {
+    html = '<div class="sig-card"><small>Siguiente</small><b>' + esc(rapidoSig.cliente || 'Cliente') +
+      '</b> · ' + esc(rapidoSig.hora) + '<div class="hoy-serv">' + esc(rapidoSig.servicio || '') + '</div></div>' +
+      '<button class="btn-grande btn-iniciar" onclick="rapidoIniciarSiguiente()">▶ Iniciar</button>' +
+      '<button class="btn-sec" style="margin-top:10px;" onclick="cerrarRapido();abrirAhora()">▶ Atender a alguien sin cita</button>';
+  } else {
+    html = '<div class="hoy-vacio" style="padding:10px;">No tienes más citas hoy.</div>' +
+      '<button class="btn-grande btn-iniciar" onclick="cerrarRapido();abrirAhora()">▶ Atender ahora</button>';
+  }
+  document.getElementById('mr-sig-box').innerHTML = html;
+  rapidoPaso('siguiente');
+}
+
+function rapidoIniciarSiguiente() {
+  var c = rapidoSig;
+  if (!c) return;
+  abrirRapido(c);
+  rapidoIniciar();
+}
+
+// Métodos de pago más usados por cada barbero (en este celular), para ponerlos primero.
+function usoMetodos(b) {
+  try { return JSON.parse(localStorage.getItem('riif_usoMet_' + b) || '{}') || {}; }
+  catch (e) { return {}; }
+}
+function sumarUsoMetodo(b, m) {
+  try {
+    var u = usoMetodos(b);
+    u[m] = (u[m] || 0) + 1;
+    localStorage.setItem('riif_usoMet_' + b, JSON.stringify(u));
+  } catch (e) {}
+}
+/** Copia de `lista` ordenada por uso (más usado primero); los empates quedan como en Config. */
+function ordenarPorUso(lista, uso) {
+  return lista.map(function(x, i) { return { x: x, i: i }; })
+    .sort(function(a, b) { return ((uso[b.x] || 0) - (uso[a.x] || 0)) || (a.i - b.i); })
+    .map(function(o) { return o.x; });
+}
+
+// Servicios más usados por cada barbero (en este celular), para ponerlos primero.
+function usoServicios(b) {
+  try { return JSON.parse(localStorage.getItem('riif_uso_' + b) || '{}') || {}; }
+  catch (e) { return {}; }
+}
+function sumarUso(b, nombres) {
+  try {
+    var u = usoServicios(b);
+    (nombres || []).forEach(function(n) { if (n) u[n] = (u[n] || 0) + 1; });
+    localStorage.setItem('riif_uso_' + b, JSON.stringify(u));
+  } catch (e) {}
+}
+
+// ─────────────────────────────────────────────
+//  MI DÍA — las citas de hoy, con Iniciar / Terminar en la tarjeta
+// ─────────────────────────────────────────────
+var agendaRecibida = false;   // ya llegó al menos una agenda (agendaCitas sirve)
+
+/** Citas de hoy (propias, o todas si es el dueño), por hora. */
+function citasHoy() {
+  var hoy = isoHoy();
+  var lista = agendaRecibida ? agendaCitas : ((calDatos && calDatos.citas) || []);
+  return lista.filter(function(c) {
+    return c.fecha === hoy && c.estadoReserva !== 'Cancelada' &&
+           (rolActual === 'Dueño' || c.barbero === barberoActual);
+  }).sort(function(a, b) { return a.hora < b.hora ? -1 : a.hora > b.hora ? 1 : 0; });
+}
+
+function renderMiDia() {
+  var area = document.getElementById('hoy-area');
+  if (!area || (!agendaRecibida && !calDatos)) return;
+  var dueno = (rolActual === 'Dueño');
+  var todas = citasHoy();
+  var cerrada = function(c) { return ESTADOS_CERRADOS.indexOf(c.estadoReal || '') >= 0; };
+  var curso = todas.filter(function(c) { return !cerrada(c) && enCurso[c.id]; });
+  var pend  = todas.filter(function(c) { return !cerrada(c) && !enCurso[c.id]; });
+  var hechas = todas.filter(cerrada);
+
+  function tarjeta(c, clase, boton) {
+    var serv = esc(c.servicio || '') + (dueno && c.barbero ? ' · ' + esc(c.barbero) : '');
+    return '<div class="hoy-card ' + clase + '">' +
+      '<div class="hoy-info" onclick="hoyTocar(\'' + esc(c.id) + '\')">' +
+        '<div class="hoy-hora">' + esc(c.hora) + (enCurso[c.id] ? ' · ' + cronoHtml(c.id) : '') + '</div>' +
+        '<div class="hoy-cliente">' + esc(c.cliente || 'Cliente') + '</div>' +
+        '<div class="hoy-serv">' + serv + '</div>' +
+      '</div>' + (boton || '') + '</div>';
+  }
+
+  var html = '';
+  if (curso.length) {
+    html += '<div class="hoy-titulo">En curso</div>';
+    curso.forEach(function(c) {
+      html += tarjeta(c, 'curso', '<button class="hoy-btn terminar" onclick="hoyTerminar(\'' + esc(c.id) + '\')">■ Terminar</button>');
+    });
+  }
+  if (pend.length) {
+    html += '<div class="hoy-titulo">Próximas</div>';
+    pend.forEach(function(c, i) {
+      html += tarjeta(c, i === 0 ? 'proximo' : '',
+        '<button class="hoy-btn ' + (i === 0 ? 'iniciar' : 'suave') + '" onclick="hoyIniciar(\'' + esc(c.id) + '\')">▶ Iniciar</button>');
+    });
+  }
+  if (hechas.length) {
+    html += '<div class="hoy-titulo">Cerradas hoy (' + hechas.length + ')</div>';
+    hechas.slice().reverse().forEach(function(c) {
+      html += '<div class="hoy-card cerrada"><div class="hoy-info" onclick="abrirCierrePorId(\'' + esc(c.id) + '\')">' +
+        '<div class="hoy-cliente">' + esc(c.hora) + ' · ' + esc(c.cliente || 'Cliente') + '</div>' +
+        '<div class="hoy-serv">' + esc(c.servicio || '') + ' · ' + esc(c.estadoReal) +
+        (dueno && c.barbero ? ' · ' + esc(c.barbero) : '') + '</div></div></div>';
+    });
+  }
+  if (!curso.length && !pend.length) {
+    html = '<div class="hoy-vacio">' + (hechas.length ? '¡Todo cerrado por hoy! 👏<br>' : 'No tienes citas para hoy.<br>') +
+      'Cuando llegue alguien, toca <b>▶ Atender ahora</b>.</div>' + html;
+  }
+  area.innerHTML = html;
+}
+
+function hoyBuscar(id) { return citasHoy().filter(function(x) { return x.id === id; })[0]; }
+
+function hoyTocar(id) {
+  var c = hoyBuscar(id);
+  tocarCita(c, function() { abrirEditar(id); });
+}
+
+function hoyIniciar(id) {
+  var c = hoyBuscar(id);
+  if (!c || !citaParaRapido(c)) { hoyTocar(id); return; }
+  iniciarDirecto(c);
+}
+
+function hoyTerminar(id) {
+  var c = hoyBuscar(id);
+  if (!c) return;
+  abrirRapido(c);
+  rapidoTerminar();
+}
+
+// ─────────────────────────────────────────────
+//  ATENDER AHORA — cliente sin cita: un toque en el servicio y arranca
+// ─────────────────────────────────────────────
+var ahBarbero = '';
+var ahClave   = '';
+var ahOcupado = false;
+var ahCliente = null;   // cliente elegido de las sugerencias (nombre, teléfono, último servicio)
+var ahSel     = [];     // servicios marcados (objetos del catálogo), en el orden en que se tocaron
+var ahSelDe   = '';     // barbero de esa selección (si cambia el barbero, se desmarca todo)
+
+function abrirAhora() {
+  if (!formCita) {
+    google.script.run
+      .withSuccessHandler(function(o) { formCita = o; if (o) abrirAhora(); else alert('No se pudo cargar el formulario.'); })
+      .withFailureHandler(function() { alert('No se pudo cargar el formulario. Revisa tu conexión.'); })
+      .getFormularioCita(tokenActual);
+    return;
+  }
+  ahClave = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  ahOcupado = false;
+  ahSel = []; ahSelDe = '';
+  limpiarError(document.getElementById('ah-error'));
+  document.getElementById('ah-cliente').value = '';
+  ahCliente = null;
+  document.getElementById('ah-sug').hidden = true;
+  document.getElementById('ah-cliente-info').hidden = true;
+  cargarClientes();   // por detrás: para sugerir clientes que ya vinieron
+
+  var esDueno = (rolActual === 'Dueño' || formCita.rol === 'Dueño');
+  var barberos = formCita.barberos || [];
+  ahBarbero = (!esDueno || barberos.length === 1) ? (barberos[0] || barberoActual) : '';
+  document.getElementById('ah-campo-barbero').hidden = !!ahBarbero;
+  var box = document.getElementById('ah-barberos');
+  box.innerHTML = '';
+  if (!ahBarbero) {
+    barberos.forEach(function(b) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = b;
+      btn.onclick = function() {
+        ahBarbero = b;
+        Array.prototype.forEach.call(box.children, function(x) { x.className = (x === btn) ? 'on' : ''; });
+        ahPintarServicios();
+      };
+      box.appendChild(btn);
+    });
+  }
+  ahPintarServicios();
+  document.getElementById('modal-ahora').classList.add('abierto');
+}
+
+function cerrarAhora() {
+  document.getElementById('modal-ahora').classList.remove('abierto');
+}
+
+function ahPintarServicios() {
+  var box = document.getElementById('ah-servicios');
+  if (!ahBarbero) {
+    box.innerHTML = '<div class="serv-resumen">Primero toca quién atiende.</div>';
+    document.getElementById('ah-iniciar').hidden = true;
+    return;
+  }
+  var uso = usoServicios(ahBarbero);
+  var lista = catalogoPara(formCita.servicios || [], ahBarbero).slice()
+    .sort(function(a, b) { return (uso[b.nombre] || 0) - (uso[a.nombre] || 0); });
+  box.innerHTML = '';
+  if (!lista.length) { box.innerHTML = '<div class="serv-resumen">No hay servicios para ' + esc(ahBarbero) + '.</div>'; return; }
+
+  // Cliente conocido: su servicio de la última vez va primero, con un toque.
+  var siempre = ahServiciosDeSiempre(lista);
+  if (siempre.length) {
+    var bs = document.createElement('button');
+    bs.type = 'button';
+    bs.className = 'siempre';
+    var precio = siempre.reduce(function(a, x) { return a + (x.precio || 0); }, 0);
+    bs.innerHTML = '<b>⭐ ' + esc(siempre.map(function(x) { return x.nombre; }).join(SEPARADOR_COMBO)) + '</b>' +
+      '<small>Lo de la última vez · ' + pesosExacto(precio) + '</small>';
+    bs.onclick = function() { ahElegir(siempre.map(function(x) { return x.nombre; }), bs, false); };
+    box.appendChild(bs);
+  }
+
+  if (ahSelDe !== ahBarbero) { ahSel = []; ahSelDe = ahBarbero; }
+  var marcado = function(sv) { return ahSel.some(function(x) { return x.nombre === sv.nombre; }); };
+  lista.forEach(function(sv) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = marcado(sv) ? 'on' : '';
+    b.innerHTML = '<b>' + esc(sv.nombre) + '</b><small>' + pesosExacto(sv.precio || 0) +
+      (sv.duracion ? ' · ' + duracionCorta(sv.duracion) : '') + '</small>';
+    // Un toque marca / desmarca; arranca el botón "▶ Iniciar" de abajo.
+    b.onclick = function() {
+      if (marcado(sv)) ahSel = ahSel.filter(function(x) { return x.nombre !== sv.nombre; });
+      else ahSel.push(sv);
+      b.className = marcado(sv) ? 'on' : '';
+      ahPintarIniciar();
+    };
+    box.appendChild(b);
+  });
+  ahPintarIniciar();
+}
+
+/** Botón de abajo: "▶ Iniciar · Corte + Barba · $45.000" (oculto si no hay nada marcado). */
+function ahPintarIniciar() {
+  var btn = document.getElementById('ah-iniciar');
+  btn.hidden = !ahSel.length || !ahBarbero;
+  if (btn.hidden) return;
+  var precio = ahSel.reduce(function(a, x) { return a + (x.precio || 0); }, 0);
+  btn.innerHTML = '▶ Iniciar<div style="font-size:13px;font-weight:600;text-transform:none;letter-spacing:0;margin-top:4px;">' +
+    esc(ahSel.map(function(x) { return x.nombre; }).join(SEPARADOR_COMBO)) + ' · ' + pesosExacto(precio) + '</div>';
+}
+
+function ahIniciarSeleccion() {
+  if (!ahSel.length) return;
+  ahElegir(ahSel.map(function(x) { return x.nombre; }), document.getElementById('ah-iniciar'), false);
+}
+
+/** Servicios de la última visita del cliente elegido (si siguen en el catálogo de este barbero). */
+function ahServiciosDeSiempre(lista) {
+  if (!ahCliente || !ahCliente.servicio) return [];
+  var partes = String(ahCliente.servicio).split(SEPARADOR_COMBO).map(function(n) { return n.trim(); });
+  var hallados = partes.map(function(n) { return lista.filter(function(x) { return x.nombre === n; })[0]; });
+  return hallados.every(Boolean) ? hallados : [];
+}
+
+function ahMostrarSugerencias() {
+  var input = document.getElementById('ah-cliente');
+  var box = document.getElementById('ah-sug');
+  if (ahCliente && input.value !== ahCliente.nombre) {   // escribió otra cosa: ya no es ese cliente
+    ahCliente = null;
+    document.getElementById('ah-cliente-info').hidden = true;
+    if (ahBarbero) ahPintarServicios();
+  }
+  var lista = buscarClientes(input.value);
+  if (!lista.length) { box.hidden = true; return; }
+  box.innerHTML = lista.map(function(c) {
+    var i = clientesDir.indexOf(c);
+    var sub = c.visitas + (c.visitas === 1 ? ' visita' : ' visitas') + (c.servicio ? ' · ' + c.servicio : '');
+    return '<div class="sug-item" onmousedown="event.preventDefault()" onclick="ahElegirCliente(' + i + ')">' +
+      '<b>' + esc(c.nombre) + '</b><small>' + esc(sub) + '</small></div>';
+  }).join('');
+  box.hidden = false;
+}
+
+function ahElegirCliente(i) {
+  var c = clientesDir[i];
+  if (!c) return;
+  ahCliente = c;
+  document.getElementById('ah-cliente').value = c.nombre;
+  document.getElementById('ah-sug').hidden = true;
+  var info = document.getElementById('ah-cliente-info');
+  info.textContent = '✓ ' + c.visitas + (c.visitas === 1 ? ' visita' : ' visitas') +
+    (c.servicio ? ' · la última vez: ' + c.servicio + (c.barbero ? ' con ' + c.barbero : '') : '');
+  info.hidden = false;
+  if (ahBarbero) ahPintarServicios();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var input = document.getElementById('ah-cliente');
+  if (!input) return;
+  input.addEventListener('input', ahMostrarSugerencias);
+  input.addEventListener('focus', function() { if (input.value) ahMostrarSugerencias(); });
+  input.addEventListener('blur', function() { setTimeout(function() { document.getElementById('ah-sug').hidden = true; }, 150); });
+});
+
+function ahElegir(nombres, btn, forzar) {
+  if (ahOcupado && !forzar) return;
+  ahOcupado = true;
+  var errBox = document.getElementById('ah-error');
+  limpiarError(errBox);
+  var botones = document.querySelectorAll('#ah-servicios button');
+  var textoBtn = btn.innerHTML;
+  botones.forEach(function(x) { x.disabled = true; });
+  btn.disabled = true;
+  btn.innerHTML = '<b>Iniciando…</b>';
+  var cliente = document.getElementById('ah-cliente').value.trim();
+  var telefono = (ahCliente && ahCliente.nombre === cliente) ? ahCliente.telefono : '';
+  var barbero = ahBarbero;
+  var nombre = nombres.join(SEPARADOR_COMBO);
+  function soltar() {
+    ahOcupado = false;
+    botones.forEach(function(x) { x.disabled = false; });
+    btn.disabled = false;
+    btn.innerHTML = textoBtn;
+  }
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!r || !r.ok) {
+        var msg = (r && r.error) || 'No se pudo iniciar.';
+        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
+        if (r && r.fueraHorario && confirm(msg + '\n\n¿Atender de todos modos?')) {
+          ahElegir(nombres, btn, true);
+          return;
+        }
+        soltar();
+        mostrarError(errBox, msg);
+        return;
+      }
+      var res = r.reserva || {};
+      if (r.ahora) relojDesfase = r.ahora - Date.now();
+      if (r.inicio) enCurso[res.id] = r.inicio;
+      if (res.fecha && agendaRecibida && !agendaCitas.some(function(x) { return x.id === res.id; })) {
+        agendaCitas.push({
+          id: res.id, fecha: res.fecha, hora: res.hora, fin: res.fin, barbero: res.barbero || barbero,
+          servicio: res.servicio || nombre, precio: res.precio || 0,
+          cliente: res.nombre || cliente || 'Cliente', telefono: telefono, notas: res.notas || '',
+          estado: 'Confirmada', estadoReal: ''
+        });
+      }
+      calAgregarCitaLocal(res);
+      soltar();
+      cerrarAhora();
+      rapidoRepintar();
+      calInvalidate();
+      if (tabActual === 'citas') cargarAgenda();
+    })
+    .withFailureHandler(function() {
+      soltar();
+      mostrarError(errBox, 'No se pudo iniciar. Revisa tu conexión (y si quedó creada antes de repetir).');
+    })
+    .atenderAhoraDashboard(tokenActual, {
+      servicios: nombres, barbero: barbero, cliente: cliente, telefono: telefono,
+      forzar: !!forzar, clave: ahClave
+    });
 }
 
 function guardarCierre() {
   if (!cierreCitaId) return;
+  var idGuardado = cierreCitaId;
   var btn = document.getElementById('mc-guardar');
   var errBox = document.getElementById('mc-error');
 
@@ -2722,6 +3974,8 @@ function guardarCierre() {
     desde: desdeActual,
     hasta: hastaActual
   };
+  if (cierreTerminoMs) datos.terminoMs = cierreTerminoMs;
+  var barberoCierre = cierreBarbero;
 
   // Solo se mandan si el barbero los cambió: así el backend no reescribe
   // (ni pierde) un servicio viejo que ya no está en Config.
@@ -2768,6 +4022,8 @@ function guardarCierre() {
         mostrarError(errBox, msg);
         return;
       }
+      if (datos.estado) rapidoMarcarCerrada(idGuardado, datos.estado);
+      if (datos.estado === 'Atendido' && datos.metodo && barberoCierre) sumarUsoMetodo(barberoCierre, datos.metodo);
       cerrarModal();
       citasCargadas = false;
       calInvalidate();
@@ -2817,29 +4073,41 @@ function calInvalidate() {
 //  PESTAÑA CITAS — AGENDA
 // ═════════════════════════════════════════════
 function cargarAgenda() {
-  var area = document.getElementById('agenda-area');
-  area.innerHTML = '<div class="spinner"></div>';
+  // La primera vez se ve el spinner; en las recargas se deja lo que hay
+  // hasta que llegue lo nuevo (no parpadea después de cada cierre).
+  if (!agendaRecibida) document.getElementById('hoy-area').innerHTML = '<div class="spinner"></div>';
   google.script.run
     .withSuccessHandler(function(r) {
       citasCargadas = true;
       agendaCitas = (r && r.citas) || [];
+      agendaRecibida = true;
+      agendaCargadaEn = Date.now();
+      absorberEnCurso(r);
       renderAgenda();
+      renderMiDia();
+      precargarFormularios();
+      setTimeout(avisoRevisar, 500);
     })
     .withFailureHandler(function(e) {
-      area.innerHTML = '<div class="no-data">No se pudo cargar la agenda.</div>';
+      if (!agendaRecibida) document.getElementById('hoy-area').innerHTML =
+        '<div class="no-data">No se pudo cargar la agenda.</div>';
     })
     .getAgendaDashboard(tokenActual, 21);
 }
 
+/** Próximos días (hoy va arriba, en las tarjetas de renderMiDia). */
 function renderAgenda() {
   var area = document.getElementById('agenda-area');
-  if (!agendaCitas.length) {
-    area.innerHTML = '<div class="no-data">No hay citas próximas.<br>Toca “＋ Nueva cita” para crear una.</div>';
+  var hoy = isoHoy();
+  var futuras = agendaCitas.filter(function(c) { return c.fecha > hoy; });
+  document.getElementById('proximos-titulo').hidden = false;
+  if (!futuras.length) {
+    area.innerHTML = '<div class="hoy-vacio" style="padding:12px;">No hay citas agendadas para los próximos días.</div>';
     return;
   }
   var html = '';
   var diaPrev = '';
-  agendaCitas.forEach(function(c) {
+  futuras.forEach(function(c) {
     if (c.fecha !== diaPrev) {
       diaPrev = c.fecha;
       html += '<div class="agenda-dia">' + fmtFechaLarga(c.fecha) + '</div>';
@@ -2975,6 +4243,7 @@ function calRefrescar(tras_cambio) {
     }
     terminar();
     calDatos = res;
+    absorberEnCurso(res);
     calCargado = true;
     cacheGuardar(clave, res);
     aviso.textContent = '';
@@ -3069,13 +4338,15 @@ function calEstadoClase(c) {
   if (c.estadoReserva === 'Cancelada' || c.estadoReal === 'Cancelado') return 'st-cancelada';
   if (c.estadoReal === 'Atendido') return 'st-atendido';
   if (c.estadoReal === 'No asistió') return 'st-no-asistio';
+  if (enCurso[c.id]) return 'st-en-curso';
   return '';
 }
 
 function calAbrirCita(id) {
   // El click que suelta un arrastre no debe abrir la cita.
   if (Date.now() - calArrastreFin < 400) return;
-  abrirEditar(id);
+  var c = ((calDatos && calDatos.citas) || []).filter(function(x) { return x.id === id; })[0];
+  tocarCita(c, function() { abrirEditar(id); });
 }
 function calAbrirHueco(barbero, fecha, hora) { abrirNuevaCita({ barbero: barbero, fecha: fecha, hora: hora }); }
 
@@ -3208,7 +4479,7 @@ function calRenderDia() {
         'px;height:' + b.height + 'px;' + pos + '" data-id="' + esc(c.id) + '" data-dur="' + (b.fin - b.ini) + '"' +
         ' title="' + esc(c.hora + ' · ' + (c.cliente || '') + (c.servicio ? ' · ' + c.servicio : '')) + '"' +
         ' onclick="event.stopPropagation();calAbrirCita(\'' + esc(c.id) + '\')">' +
-        '<b>' + esc(c.hora) + '</b><span>' + esc(c.cliente) + '</span>' +
+        '<b>' + esc(c.hora) + '</b><span>' + esc(c.cliente) + '</span>' + cronoHtml(c.id) +
         (conServicio ? '<small>' + esc(c.servicio) + '</small>' : '') + '</div>';
     });
 
@@ -3952,13 +5223,6 @@ function guardarEdicion() {
     .modificarCitaDashboard(tokenActual, editId, cambios);
 }
 
-function cerrarDesdeEdicion() {
-  if (!editId) return;
-  var id = editId;
-  cerrarEditar();
-  abrirCierrePorId(id);
-}
-
 /**
  * Borra la cita de todo el sistema (solo dueño): Reservas, Registro, Google
  * Calendar e inventario. Para duplicadas o creadas por error.
@@ -3990,29 +5254,6 @@ function eliminarCita(id) {
  * No show: la cita queda en el Registro como "No asistió" (sin plata ni
  * comisión), para llevar la cuenta de quién falla. No se borra de la hoja.
  */
-function marcarNoShow() {
-  if (!editId) return;
-  if (!confirm('¿Marcar que el cliente NO VINO?\n\nQueda en la hoja como "No asistió", sin cobro ni comisión.')) return;
-  var id = editId;
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (!r || !r.ok) {
-        var msg = (r && r.error) || 'No se pudo marcar.';
-        if (/sesi[óo]n|venci/i.test(msg)) { alert(msg); salir(); return; }
-        mostrarError('ed-error', msg);
-        return;
-      }
-      cerrarEditar();
-      calInvalidate();
-      cargarAgenda();
-      if (tabActual === 'resumen') refrescar();
-    })
-    .withFailureHandler(function() { mostrarError('ed-error', 'No se pudo marcar. Revisa tu conexión.'); })
-    .cerrarServicioDashboard(tokenActual, id, {
-      estado: 'No asistió', propina: 0, descuento: 0, productos: {}
-    });
-}
-
 function cancelarCitaActual() {
   if (!editId) return;
   if (!confirm('¿Cancelar esta cita? Se libera el cupo y se le avisa al barbero.')) return;

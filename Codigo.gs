@@ -1309,7 +1309,8 @@ function _tgProcesarUpdates_() {
     cambio = true;
     conectados.push(nombre);
     _tgEnviar_(m.chat.id, '✅ Listo, <b>' + _tgEsc_(nombre) + '</b>. Aquí te van a llegar las citas nuevas, ' +
-      'los cambios y un recordatorio 1 hora antes de cada cita.');
+      'los cambios, un recordatorio 1 hora antes de cada cita y un aviso si un servicio ' +
+      'queda sin iniciar o sin cerrar.');
   });
   props.setProperty(TG_PROP_OFFSET, String(offset));
   props.setProperty(TG_PROP_LOG, JSON.stringify(log));
@@ -1400,6 +1401,135 @@ function _tgRecordatorios_() {
   var nuevo = {}; nuevo[hoy] = yaHoy;
   props.setProperty(TG_PROP_RECORD, JSON.stringify(nuevo));
   return n;
+}
+
+// ─────────────────────────────────────────────
+//  SEGUIMIENTO: citas sin iniciar y servicios sin cerrar (rutina de 15 min)
+// ─────────────────────────────────────────────
+var TG_PROP_SEGUIM     = 'TG_SEGUIMIENTO'; // JSON { fecha, ini:[ids], fin:[ids], dia:[barberos] }
+var SEG_SIN_INICIAR_MIN = 5;   // pasó la hora de la cita + esto y no le han dado Iniciar
+var SEG_SIN_CERRAR_MIN  = 5;   // en curso más de lo que dura el servicio + esto
+var SEG_FIN_DIA_MIN     = 15;  // al cerrar su horario + esto: lista de lo que quedó abierto
+
+function _urlDashboard_() {
+  try { return ScriptApp.getService().getUrl() + '?p=dashboard'; } catch (e) { return ''; }
+}
+
+/**
+ * Le avisa al barbero por Telegram (una sola vez por cita):
+ *  · ⏳ una cita de hoy pasó su hora y nadie le dio "Iniciar";
+ *  · ⏱ un servicio lleva en curso bastante más de lo que dura;
+ *  · 📋 al terminar su horario, lo que le quedó sin cerrar (copia al dueño).
+ * Devuelve cuántos mensajes mandó.
+ */
+function _tgSeguimiento_() {
+  if (!_tgActivo_()) return 0;
+  var lockSeg = LockService.getScriptLock();
+  if (!lockSeg.tryLock(5000)) return 0;   // otra ejecución ya está avisando
+  try { return _tgSeguimientoSinCandado_(); } finally { lockSeg.releaseLock(); }
+}
+
+function _tgSeguimientoSinCandado_() {
+  var chats = _tgChats_();
+  if (!Object.keys(chats).length) return 0;
+  var hr = libro_().getSheetByName(HOJA_RESERVAS);
+  if (!hr || hr.getLastRow() < 2) return 0;
+
+  var props = PropertiesService.getScriptProperties();
+  var hoy = hoyISO_();
+  var st = {};
+  try { st = JSON.parse(props.getProperty(TG_PROP_SEGUIM) || '{}') || {}; } catch (e) { st = {}; }
+  if (st.fecha !== hoy) st = { fecha: hoy, ini: [], fin: [], dia: [] };
+
+  var ahora = ahoraMin_();
+  var estados = _estadosRegistroPorId_();
+  var enCurso = (typeof _enCurso_ === 'function') ? _enCurso_() : {};
+  var horarios = leerHorarios_();
+  var dia = diaSemana_(hoy);
+  var url = _urlDashboard_();
+  var pie = url ? '\n👉 <a href="' + url + '">Abrir dashboard</a>' : '';
+  var n = 0;
+  var abiertas = {};   // { barbero: [cita, ...] } sin cerrar, para el resumen del día
+
+  hr.getRange(2, 1, hr.getLastRow() - 1, 14).getValues().forEach(function (f) {
+    var id = String(f[0]).trim();
+    if (!id || aISO_(f[2]) !== hoy || String(f[12]).trim() !== 'Confirmada') return;
+    var est = estados[id] || '';
+    if (est === 'Atendido' || est === 'No asistió' || est === 'Cancelado') return;
+    var barbero = String(f[5]).trim();
+    var ini = aMin_(aHHMM_(f[3]));
+    if (ini === null) return;
+    var dur = Number(f[7]) || 30;
+    var c = { id: id, hora: aHHMM_(f[3]), barbero: barbero, servicio: String(f[6]).trim(),
+              cliente: String(f[9]).trim() || 'Cliente', dur: dur };
+    if (ini <= ahora) (abiertas[barbero] = abiertas[barbero] || []).push(c);
+    if (!chats[barbero]) return;
+
+    var inicioMs = Number(enCurso[id]) || 0;
+    if (!inicioMs) {
+      // ⏳ Ya pasó la hora y no se ha iniciado
+      // (solo mientras la cita es "reciente": las muy viejas van al resumen del día)
+      if (ahora >= ini + SEG_SIN_INICIAR_MIN && ahora <= ini + dur + 120 && st.ini.indexOf(id) < 0) {
+        if (_tgEnviar_(chats[barbero], '⏳ <b>Recordatorio:</b> la cita de <b>' + _tgEsc_(c.cliente) + '</b> era a las <b>' +
+            _tgEsc_(c.hora) + '</b> (' + _tgEsc_(c.servicio) + ') y no está iniciada.\n' +
+            'Si ya llegó, tócala y dale <b>▶ Iniciar</b>. Si no vino, márcalo como <b>No vino</b>.' + pie)) {
+          st.ini.push(id); n++;
+        }
+      }
+    } else {
+      // ⏱ Lleva mucho más de lo que dura el servicio
+      var lleva = Math.round((Date.now() - inicioMs) / 60000);
+      if (lleva >= dur + SEG_SIN_CERRAR_MIN && st.fin.indexOf(id) < 0) {
+        if (_tgEnviar_(chats[barbero], '⏱ <b>Recordatorio:</b> el servicio de <b>' + _tgEsc_(c.cliente) +
+            '</b> (' + _tgEsc_(c.servicio) + ', ' + dur + ' min) ya debía terminar · lleva ' + lleva + ' min.\n' +
+            'Si ya terminaste, ciérralo con <b>■ Terminar</b>.' + pie)) {
+          st.fin.push(id); n++;
+        }
+      }
+    }
+  });
+
+  // 📋 Fin del día de cada barbero: lo que le quedó abierto (una vez por día).
+  var duenos = _tgDuenos_();
+  Object.keys(abiertas).forEach(function (barbero) {
+    if (st.dia.indexOf(barbero) >= 0) return;
+    var h = horarios[barbero] && horarios[barbero][dia];
+    var cierra = h ? aMin_(h.cierra) : null;
+    if (cierra === null || ahora < cierra + SEG_FIN_DIA_MIN) return;
+    var lista = abiertas[barbero];
+    var texto = lista.map(function (c) {
+      return '· ' + _tgEsc_(c.hora) + ' ' + _tgEsc_(c.cliente) + ' — ' + _tgEsc_(c.servicio) +
+             (enCurso[c.id] ? ' (iniciado)' : '');
+    }).join('\n');
+    var enviado = false;
+    if (chats[barbero]) {
+      enviado = _tgEnviar_(chats[barbero], '📋 <b>Te ' + (lista.length === 1 ? 'quedó 1 servicio' : 'quedaron ' + lista.length + ' servicios') +
+        ' sin cerrar hoy:</b>\n' + texto + '\nCiérralos para que cuenten en tu pago.' + pie);
+      if (enviado) n++;
+    }
+    duenos.forEach(function (d) {
+      if (d === barbero || !chats[d]) return;
+      if (_tgEnviar_(chats[d], '📋 <b>' + _tgEsc_(barbero) + '</b> dejó ' + lista.length +
+          (lista.length === 1 ? ' servicio' : ' servicios') + ' sin cerrar hoy:\n' + texto + pie)) { enviado = true; n++; }
+    });
+    if (enviado || !chats[barbero]) st.dia.push(barbero);
+  });
+
+  props.setProperty(TG_PROP_SEGUIM, JSON.stringify(st));
+  return n;
+}
+
+/** Menú: corre el seguimiento ya (para probar sin esperar la rutina). */
+function revisarServiciosAbiertos() {
+  _soloDesdeLaHoja_();
+  var ui = SpreadsheetApp.getUi();
+  if (!_tgActivo_()) { ui.alert('Primero corre "Configurar Telegram".'); return; }
+  var n = _tgSeguimiento_();
+  ui.alert(n ? 'Listo: se mandaron ' + n + ' aviso(s) por Telegram.'
+             : 'No hay nada que avisar ahora (o ya se avisó hoy).\n\n' +
+               'Se avisa: citas de hoy que pasaron su hora + ' + SEG_SIN_INICIAR_MIN + ' min sin iniciar, ' +
+               'servicios en curso más de su duración + ' + SEG_SIN_CERRAR_MIN + ' min, y al cerrar el horario ' +
+               'lo que quedó abierto.');
 }
 
 /**
@@ -1982,6 +2112,7 @@ function menuPersonalizado_() {
     .addSeparator()
     .addItem('Configurar Telegram', 'configurarTelegram')
     .addItem('Probar avisos de Telegram', 'probarTelegram')
+    .addItem('Avisar servicios sin iniciar / sin cerrar', 'revisarServiciosAbiertos')
     .addItem('Diagnóstico de Telegram', 'diagnosticoTelegram')
     .addItem('Quitar citas de Google Calendar', 'quitarCitasDeGoogleCalendar')
     .addToUi();
@@ -2572,6 +2703,29 @@ function sincronizarCancelaciones_() {
 }
  
 // ==================== 4. RUTINA Y DISPARADORES ====================
+
+/**
+ * Cada 5 minutos: solo los recordatorios de iniciar / terminar (liviano).
+ * Fuera del horario de todos los barberos no lee nada.
+ */
+function rutinaRecordatorios() {
+  try {
+    var dia = diaSemana_(hoyISO_()), ahora = ahoraMin_(), h = leerHorarios_();
+    var abierto = Object.keys(h).some(function (n) {
+      var x = h[n][dia];
+      return x && ahora >= aMin_(x.abre) && ahora <= aMin_(x.cierra) + SEG_FIN_DIA_MIN + 30;
+    });
+    if (abierto) _tgSeguimiento_();
+  } catch (e) { console.error('recordatorios: ' + e); }
+}
+
+/** Crea el disparador de 5 min si no existe (lo llama la rutina de 15 min). */
+function _asegurarDisparadorRecordatorios_() {
+  var hay = ScriptApp.getProjectTriggers().some(function (t) {
+    return t.getHandlerFunction() === 'rutinaRecordatorios';
+  });
+  if (!hay) ScriptApp.newTrigger('rutinaRecordatorios').timeBased().everyMinutes(5).create();
+}
  
 /** Lo que corre solo cada 15 minutos. No abre ventanas ni pide nada. */
 function rutinaAutomatica() {
@@ -2581,6 +2735,8 @@ function rutinaAutomatica() {
   try { sincronizarCancelaciones_(); }catch (e) { console.error('cancel: ' + e); }
   try { _tgProcesarUpdates_(); }     catch (e) { console.error('tg updates: ' + e); }
   try { _tgRecordatorios_(); }       catch (e) { console.error('tg recordatorios: ' + e); }
+  try { _tgSeguimiento_(); }         catch (e) { console.error('tg seguimiento: ' + e); }
+  try { _asegurarDisparadorRecordatorios_(); } catch (e) { console.error('disparador 5 min: ' + e); }
   try {
     var lock = LockService.getScriptLock();
     if (lock.tryLock(10000)) {
@@ -2597,7 +2753,8 @@ function instalarDisparador() {
   _soloDesdeLaHoja_();
   ScriptApp.getProjectTriggers().forEach(function (t) {
     var f = t.getHandlerFunction();
-    if (f === 'rutinaAutomatica' || f === 'volcarAutomatico' || f === 'procesarRespuestasForm') {
+    if (f === 'rutinaAutomatica' || f === 'volcarAutomatico' || f === 'procesarRespuestasForm' ||
+        f === 'rutinaRecordatorios') {
       ScriptApp.deleteTrigger(t);
     }
   });
@@ -2606,13 +2763,18 @@ function instalarDisparador() {
     .timeBased()
     .everyMinutes(15)
     .create();
+  ScriptApp.newTrigger('rutinaRecordatorios')
+    .timeBased()
+    .everyMinutes(5)
+    .create();
  
   SpreadsheetApp.getUi().alert(
     'Automatización instalada.\n\n' +
     'Cada 15 minutos, sin que hagas nada:\n' +
     '· Las citas que ya terminaron pasan al Registro\n' +
     '· Las respuestas del form escriben Estado y Método de pago\n' +
-    '· Las cancelaciones se reflejan en el Registro\n\n' +
+    '· Las cancelaciones se reflejan en el Registro\n' +
+    'Cada 5 minutos: recordatorios por Telegram de servicios sin iniciar o sin cerrar.\n\n' +
     'Ya no tienes que escribir la fecha nunca más.'
   );
 }
@@ -2622,7 +2784,8 @@ function quitarDisparadores() {
   _soloDesdeLaHoja_();
   var n = 0;
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'rutinaAutomatica') { ScriptApp.deleteTrigger(t); n++; }
+    var f = t.getHandlerFunction();
+    if (f === 'rutinaAutomatica' || f === 'rutinaRecordatorios') { ScriptApp.deleteTrigger(t); n++; }
   });
   SpreadsheetApp.getUi().alert('Se quitaron ' + n + ' disparador(es). Volviste al modo manual.');
 }
