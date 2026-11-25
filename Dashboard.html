@@ -1964,7 +1964,7 @@ function mostrarDashboard() {
 /** Lo que cambia según el rol (se llama al entrar y si el rol cambia). */
 function aplicarRolUI() {
   document.getElementById('saludo-fecha').textContent  =
-    (rolActual === 'Dueño' ? 'Vista de administrador · ' : '') + fechaHoyTexto() + ' · v25-prueba';
+    (rolActual === 'Dueño' ? 'Vista de administrador · ' : '') + fechaHoyTexto() + ' · v25';
   document.getElementById('tab-btn-inventario').hidden = (rolActual !== 'Dueño');
   document.getElementById('tab-btn-analisis').hidden = false;   // cada barbero ve sus propias métricas
   document.querySelectorAll('.solo-dueno').forEach(function(el) {
